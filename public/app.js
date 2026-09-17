@@ -257,7 +257,9 @@ function refreshTables() {
 
 // ---------- Dashboard tab ----------
 
-let statCharts = { cumulative: null, daily: null };
+let statCharts = { cumulative: null, daily: null, gender: null, age: null, funnel: null };
+
+const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#64748b', '#db2777'];
 
 async function loadStatsOverview() {
   const { json } = await api('/stats/overview');
@@ -311,6 +313,82 @@ async function loadTimeseries() {
     },
     options: chartOptions(),
   });
+}
+
+async function loadDemographics() {
+  const { json } = await api('/stats/demographics');
+  if (!json) return;
+
+  renderGenderChart(json.gender || []);
+  renderAgeChart(json.age || { average_age: null, sample_size: 0, buckets: [] });
+  renderFunnelChart(json.channel_funnel || { total: 0, has_tiktok: 0, has_shopee: 0, has_both: 0 });
+}
+
+function renderGenderChart(gender) {
+  if (statCharts.gender) statCharts.gender.destroy();
+  statCharts.gender = new Chart($('#chart-gender'), {
+    type: 'doughnut',
+    data: {
+      labels: gender.map((g) => `${g.label} (${g.count})`),
+      datasets: [{ data: gender.map((g) => g.count), backgroundColor: gender.map((_, i) => PALETTE[i % PALETTE.length]), borderWidth: 1, borderColor: '#fff' }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+    },
+  });
+}
+
+function renderAgeChart(age) {
+  const buckets = age.buckets || [];
+  $('#age-subtitle').textContent = age.sample_size > 0 ? `avg ${age.average_age} yrs (n=${fmtNum(age.sample_size)})` : '(no DOB data yet)';
+
+  if (statCharts.age) statCharts.age.destroy();
+  statCharts.age = new Chart($('#chart-age'), {
+    type: 'bar',
+    data: {
+      labels: buckets.map((b) => b.range),
+      datasets: [{ label: 'Affiliates', data: buckets.map((b) => b.count), backgroundColor: '#7c3aed', borderRadius: 4, maxBarThickness: 40 }],
+    },
+    options: chartOptions(),
+  });
+}
+
+function renderFunnelChart(funnel) {
+  const stages = [
+    { label: 'Total Affiliates', value: funnel.total },
+    { label: 'Has TikTok', value: funnel.has_tiktok },
+    { label: 'Has Shopee', value: funnel.has_shopee },
+    { label: 'Has Both', value: funnel.has_both },
+  ];
+
+  if (statCharts.funnel) statCharts.funnel.destroy();
+  statCharts.funnel = new Chart($('#chart-funnel'), {
+    type: 'bar',
+    data: {
+      labels: stages.map((s) => s.label),
+      datasets: [{ data: stages.map((s) => s.value), backgroundColor: '#2563eb', borderRadius: 4, maxBarThickness: 28 }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, grid: { color: '#eef0f3' }, ticks: { precision: 0 } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+
+  const total = funnel.total || 0;
+  $('#funnel-legend').innerHTML = stages
+    .map((s) => {
+      const pct = total > 0 ? ((s.value / total) * 100).toFixed(1) : '0.0';
+      return `<li><span>${esc(s.label)}</span><span class="funnel-count">${fmtNum(s.value)} (${pct}%)</span></li>`;
+    })
+    .join('');
 }
 
 let dashboardCursor = null;
@@ -423,6 +501,7 @@ $('#sync-tasks-tbody').addEventListener('click', async (e) => {
 loadWhoami();
 loadStatsOverview();
 loadTimeseries();
+loadDemographics();
 loadDashboardTable(true);
 searchProfiles(true);
 loadErrors();

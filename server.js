@@ -208,6 +208,11 @@ api.get('/stats/timeseries', async (req, res) => {
   res.status(status).json(json);
 });
 
+api.get('/stats/demographics', async (req, res) => {
+  const { status, json } = await callWorker('/admin/stats/demographics');
+  res.status(status).json(json);
+});
+
 api.get('/profiles/:id', async (req, res) => {
   const { status, json } = await callWorker(`/admin/profiles/${encodeURIComponent(req.params.id)}`);
   res.status(status).json(json);
