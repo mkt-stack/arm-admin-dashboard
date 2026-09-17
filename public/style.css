@@ -230,6 +230,15 @@ main { padding: 1.5rem; }
   overflow-y: auto;
   z-index: 100;
 }
+/* `.modal-overlay`'s `display: flex` and the browser's built-in
+   `[hidden] { display: none }` have equal specificity, and author styles
+   beat user-agent styles at a tie — so without this, setting `el.hidden =
+   true` in JS had no visual effect at all: the close buttons worked, the
+   modal just silently ignored being told to hide. This rule's higher
+   specificity (class + attribute) forces the override. */
+.modal-overlay[hidden] {
+  display: none;
+}
 
 .modal {
   position: relative;
