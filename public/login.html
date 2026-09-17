@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>arm-worker-v2 admin</title>
+<link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body class="login-body">
+  <form id="login-form" class="login-card">
+    <h1>arm-worker-v2 admin</h1>
+    <label>Username
+      <input type="text" name="username" autocomplete="username" required autofocus />
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required />
+    </label>
+    <button type="submit">Sign in</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('login-error');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      const fd = new FormData(form);
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
+      });
+      if (res.ok) {
+        window.location.href = '/';
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      errorEl.textContent = body.error || 'Sign in failed';
+      errorEl.hidden = false;
+    });
+  </script>
+</body>
+</html>

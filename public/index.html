@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>arm-worker-v2 admin</title>
+<link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>arm-worker-v2 admin</h1>
+    <div class="topbar-right">
+      <label class="dryrun-toggle">
+        <input type="checkbox" id="dry-run-toggle" />
+        Dry run (preview only, no writes)
+      </label>
+      <span id="whoami"></span>
+      <button id="logout-btn" class="link-btn">Log out</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="profiles">Profiles</button>
+    <button class="tab-btn" data-tab="errors">Errors</button>
+    <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
+  </nav>
+
+  <main>
+    <section id="tab-profiles" class="tab-panel active">
+      <div class="panel-toolbar">
+        <input type="search" id="profile-search" placeholder="Search internal_id / email / phone / line_uid" />
+        <button id="profile-search-btn">Search</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Internal ID</th><th>Line UID</th><th>Email</th><th>Phone</th><th>Shopify Customer</th><th>Updated</th></tr>
+        </thead>
+        <tbody id="profiles-tbody"></tbody>
+      </table>
+      <button id="profiles-load-more" hidden>Load more</button>
+
+      <div id="profile-detail" class="detail-panel" hidden>
+        <button id="profile-detail-close" class="link-btn">← Back to list</button>
+        <h2 id="pd-internal-id"></h2>
+        <div class="detail-grid">
+          <div>
+            <h3>Profile</h3>
+            <dl id="pd-fields"></dl>
+
+            <h3>Edit a field</h3>
+            <form id="pd-edit-form" class="inline-form">
+              <select name="field" required>
+                <option value="">Choose field…</option>
+                <option value="email">email</option>
+                <option value="phone">phone</option>
+                <option value="nick_name">nick_name</option>
+                <option value="full_name">full_name</option>
+                <option value="gender">gender</option>
+                <option value="dob">dob</option>
+              </select>
+              <input type="text" name="new_value" placeholder="New value" required />
+              <button type="submit">Save</button>
+            </form>
+            <p id="pd-edit-result" class="result-msg"></p>
+
+            <h3>Relink LINE UID</h3>
+            <form id="pd-relink-form" class="inline-form">
+              <input type="text" name="new_line_uid" placeholder="New line_uid" required />
+              <button type="submit">Relink</button>
+            </form>
+            <p id="pd-relink-result" class="result-msg"></p>
+
+            <h3>Notify</h3>
+            <form id="pd-notify-form" class="inline-form">
+              <button type="submit">Send profile card</button>
+            </form>
+            <p id="pd-notify-result" class="result-msg"></p>
+          </div>
+
+          <div>
+            <h3>Handles</h3>
+            <ul id="pd-handles" class="plain-list"></ul>
+
+            <h3>LINE UID history</h3>
+            <ul id="pd-line-history" class="plain-list"></ul>
+
+            <h3>Sync tasks</h3>
+            <ul id="pd-sync-tasks" class="plain-list"></ul>
+
+            <h3>Audit log</h3>
+            <ul id="pd-audit-log" class="plain-list"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-errors" class="tab-panel">
+      <div class="panel-toolbar">
+        <select id="errors-status">
+          <option value="open" selected>open</option>
+          <option value="resolved">resolved</option>
+          <option value="ignored">ignored</option>
+        </select>
+        <button id="errors-load-btn">Load</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>Occurred</th><th>Flow</th><th>Line UID</th><th>Category</th><th>Field errors</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="errors-tbody"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-sync-tasks" class="tab-panel">
+      <div class="panel-toolbar">
+        <select id="sync-tasks-status">
+          <option value="">(any status)</option>
+          <option value="pending">pending</option>
+          <option value="success">success</option>
+          <option value="failed">failed</option>
+        </select>
+        <button id="sync-tasks-load-btn">Load</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>Internal ID</th><th>Status</th><th>Attempts</th><th>Last error</th><th>Updated</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="sync-tasks-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
