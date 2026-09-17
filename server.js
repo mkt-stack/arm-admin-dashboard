@@ -1,15 +1,17 @@
 /**
  * arm-admin-dashboard — the admin UI for arm-worker-v2.
  *
- * Auth model (per PROJECT_CONTEXT.md decision, 2026-09-17): a single shared
- * username/password, not per-admin accounts, not Cloudflare Access. On
- * success this server sets a signed, httpOnly session cookie; the browser
- * never sees ADMIN_UI_PASSWORD again after login, and never sees
- * ARM_ADMIN_TOKEN at all — that's held server-side only and attached to
- * every call this server proxies through to arm-worker-v2's /admin/* API.
- * The logged-in username is threaded through as `admin_id` on every
- * mutating call, so kol_audit_log/kol_notifications_log rows trace back to
- * who did what, without needing real per-user accounts yet.
+ * Auth model (per PROJECT_CONTEXT.md decision, 2026-09-17, extended to
+ * multi-user 2026-09-18): a fixed roster of username/password accounts
+ * defined by the ADMIN_UI_USERS env var — still not per-admin *accounts* in
+ * the sense of self-service signup or a users table, just more than one
+ * fixed pair now, and still not Cloudflare Access. On success this server
+ * sets a signed, httpOnly session cookie; the browser never sees a password
+ * again after login, and never sees ARM_ADMIN_TOKEN at all — that's held
+ * server-side only and attached to every call this server proxies through to
+ * arm-worker-v2's /admin/* API. The logged-in username is threaded through
+ * as `admin_id` on every mutating call, so kol_audit_log/kol_notifications_log
+ * rows now trace back to the actual person who did it, not a shared "admin".
  *
  * Every mutating /api/* route accepts `{ dry_run: true }` in its body and
  * passes it straight through to the worker (see arm-worker-v2's PROJECT_CONTEXT.md
@@ -25,8 +27,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const {
-  ADMIN_UI_USERNAME,
-  ADMIN_UI_PASSWORD,
+  ADMIN_UI_USERS,
   SESSION_SECRET,
   ARM_WORKER_BASE_URL,
   ARM_ADMIN_TOKEN,
@@ -34,10 +35,32 @@ const {
   NODE_ENV,
 } = process.env;
 
-const REQUIRED_ENV = { ADMIN_UI_USERNAME, ADMIN_UI_PASSWORD, SESSION_SECRET, ARM_WORKER_BASE_URL, ARM_ADMIN_TOKEN };
+const REQUIRED_ENV = { ADMIN_UI_USERS, SESSION_SECRET, ARM_WORKER_BASE_URL, ARM_ADMIN_TOKEN };
 for (const [name, val] of Object.entries(REQUIRED_ENV)) {
   if (!val) {
     console.error(`Missing required env var: ${name}`);
+    process.exit(1);
+  }
+}
+
+// ADMIN_UI_USERS is a JSON object: { "username": "password", ... } — at
+// least one entry required. Plaintext in an env var, same trust boundary as
+// ARM_ADMIN_TOKEN/SESSION_SECRET already relied on (Railway variables are
+// only visible to project members) — add bcrypt hashing here later if that
+// boundary ever stops being good enough.
+let USERS;
+try {
+  USERS = JSON.parse(ADMIN_UI_USERS);
+} catch {
+  USERS = null;
+}
+if (!USERS || typeof USERS !== 'object' || Array.isArray(USERS) || Object.keys(USERS).length === 0) {
+  console.error('ADMIN_UI_USERS must be a JSON object of {"username":"password",...} with at least one entry');
+  process.exit(1);
+}
+for (const [username, password] of Object.entries(USERS)) {
+  if (typeof password !== 'string' || !password) {
+    console.error(`ADMIN_UI_USERS: user "${username}" has an empty/invalid password`);
     process.exit(1);
   }
 }
@@ -46,6 +69,10 @@ const WORKER_BASE = ARM_WORKER_BASE_URL.replace(/\/$/, '');
 const IS_PROD = NODE_ENV === 'production';
 const SESSION_COOKIE = 'arm_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+// Compared against when the submitted username isn't in USERS at all, so a
+// bad username takes the same code path (and roughly the same time) as a
+// bad password for a real username — doesn't reveal which one was wrong.
+const DUMMY_PASSWORD = crypto.randomBytes(24).toString('hex');
 
 const app = express();
 app.use(express.json());
@@ -101,12 +128,14 @@ app.get('/login', (req, res) => {
 
 app.post('/login', (req, res) => {
   const { username, password } = req.body || {};
-  const userOk = timingSafeStringEqual(username || '', ADMIN_UI_USERNAME);
-  const passOk = timingSafeStringEqual(password || '', ADMIN_UI_PASSWORD);
-  if (!userOk || !passOk) {
+  const uname = String(username || '');
+  const userExists = Object.prototype.hasOwnProperty.call(USERS, uname);
+  const expectedPassword = userExists ? USERS[uname] : DUMMY_PASSWORD;
+  const passOk = timingSafeStringEqual(password || '', expectedPassword);
+  if (!userExists || !passOk) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
-  res.cookie(SESSION_COOKIE, createSessionValue(username), {
+  res.cookie(SESSION_COOKIE, createSessionValue(uname), {
     httpOnly: true,
     secure: IS_PROD,
     sameSite: 'lax',
