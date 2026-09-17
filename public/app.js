@@ -5,6 +5,14 @@ function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 function isDryRun() { return $('#dry-run-toggle').checked; }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function fmtTs(ms) { return ms ? new Date(ms).toLocaleString() : '—'; }
+function fmtNum(n) { return (n ?? 0).toLocaleString(); }
+
+function pctSpan(pct) {
+  if (pct === null || pct === undefined) return '<span class="neutral">—</span>';
+  const cls = pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral';
+  const sign = pct > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${pct.toFixed(1)}%</span>`;
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(`/api${path}`, {
@@ -54,6 +62,274 @@ $all('.tab-btn').forEach((btn) => {
   });
 });
 
+// ---------- shared: profile row rendering + view/edit modals ----------
+
+function profileRowHtml(p, dateField) {
+  return `<tr>
+    <td>${esc(p.internal_id)}</td>
+    <td>${esc(p.line_uid)}</td>
+    <td>${esc(p.email)}</td>
+    <td>${esc(p.phone)}</td>
+    <td>${esc(p.shopify_customer_id) || '—'}</td>
+    <td>${fmtTs(dateField === 'created' ? p.created_at : p.updated_at)}</td>
+    <td class="row-actions">
+      <button class="icon-btn view-btn" data-id="${esc(p.internal_id)}" title="View">&#128065;</button>
+      <button class="icon-btn edit-btn" data-id="${esc(p.internal_id)}" title="Edit">&#9998;</button>
+    </td>
+  </tr>`;
+}
+
+function bindRowActions(tbodyEl) {
+  tbodyEl.addEventListener('click', (e) => {
+    const viewBtn = e.target.closest('.view-btn');
+    const editBtn = e.target.closest('.edit-btn');
+    if (viewBtn) openView(viewBtn.dataset.id);
+    else if (editBtn) openEdit(editBtn.dataset.id);
+  });
+}
+
+let currentDetail = null;
+
+async function fetchProfileDetail(internalId) {
+  const { status, json } = await api(`/profiles/${encodeURIComponent(internalId)}`);
+  if (status !== 200) {
+    alert(json.message || 'Failed to load profile');
+    return null;
+  }
+  currentDetail = json;
+  return json;
+}
+
+function closeModal(el) { el.hidden = true; }
+
+[$('#view-modal'), $('#edit-modal')].forEach((overlay) => {
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(overlay); });
+});
+$('#view-modal-close').addEventListener('click', () => closeModal($('#view-modal')));
+$('#view-close-btn').addEventListener('click', () => closeModal($('#view-modal')));
+$('#edit-modal-close').addEventListener('click', () => closeModal($('#edit-modal')));
+$('#edit-close-btn').addEventListener('click', () => closeModal($('#edit-modal')));
+
+async function openView(internalId) {
+  const detail = await fetchProfileDetail(internalId);
+  if (!detail) return;
+  renderView(detail);
+  $('#view-modal').hidden = false;
+}
+
+function renderView(detail) {
+  const { profile, handles, audit_log, sync_tasks, line_uid_history } = detail;
+
+  $('#view-internal-id').textContent = profile.internal_id;
+  $('#view-fields').innerHTML = ['line_uid', 'email', 'phone', 'nick_name', 'full_name', 'gender', 'dob', 'shopify_customer_id', 'shopify_synced_at', 'created_at', 'updated_at']
+    .map((f) => {
+      const v = f.endsWith('_at') ? fmtTs(profile[f]) : (profile[f] ?? '—');
+      return `<dt>${f}</dt><dd>${esc(v)}</dd>`;
+    })
+    .join('');
+
+  $('#view-handles').innerHTML = handles.length
+    ? handles.map((h) => `<li>${esc(h.channel)}: ${esc(h.value)} ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
+    : '<li class="muted">none</li>';
+
+  $('#view-line-history').innerHTML = line_uid_history.length
+    ? line_uid_history.map((h) => `<li>${esc(h.old_line_uid)} → changed by ${esc(h.changed_by)} at ${fmtTs(h.changed_at)}</li>`).join('')
+    : '<li class="muted">none</li>';
+
+  $('#view-sync-tasks').innerHTML = sync_tasks.length
+    ? sync_tasks.map((t) => `<li>#${t.id} ${esc(t.status)} (${t.attempts} attempts)${t.last_error ? ` — ${esc(t.last_error)}` : ''} — ${fmtTs(t.updated_at)}
+        ${t.status !== 'success' ? `<button class="link-btn retry-sync-task" data-id="${t.id}">retry</button>` : ''}</li>`).join('')
+    : '<li class="muted">none</li>';
+
+  $('#view-audit-log').innerHTML = audit_log.length
+    ? audit_log.map((a) => `<li>[${esc(a.actor_type)}${a.actor_id ? `:${esc(a.actor_id)}` : ''}] ${esc(a.field)}: ${esc(a.old_value)} → ${esc(a.new_value)} — ${fmtTs(a.occurred_at)}</li>`).join('')
+    : '<li class="muted">none</li>';
+
+  $('#view-edit-btn').dataset.internalId = profile.internal_id;
+}
+
+$('#view-edit-btn').addEventListener('click', () => {
+  const id = $('#view-edit-btn').dataset.internalId;
+  closeModal($('#view-modal'));
+  openEdit(id);
+});
+
+$('#view-sync-tasks').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.retry-sync-task');
+  if (!btn) return;
+  const { status, json } = await api(`/sync-tasks/${btn.dataset.id}/retry`, { method: 'POST', body: { dry_run: isDryRun() } });
+  alert(status === 200 ? `Retried${json.dry_run ? ' (dry run)' : ''}` : json.message || 'Failed');
+  if (status === 200 && !isDryRun()) {
+    const detail = await fetchProfileDetail($('#view-internal-id').textContent);
+    if (detail) renderView(detail);
+  }
+});
+
+const EDIT_FIELDS = ['email', 'phone', 'nick_name', 'full_name', 'gender', 'dob'];
+
+async function openEdit(internalId) {
+  const detail = currentDetail && currentDetail.profile.internal_id === internalId ? currentDetail : await fetchProfileDetail(internalId);
+  if (!detail) return;
+  const { profile } = detail;
+
+  $('#edit-internal-id').textContent = profile.internal_id;
+  const form = $('#edit-form');
+  form.dataset.internalId = profile.internal_id;
+  const original = {};
+  for (const f of EDIT_FIELDS) {
+    form.elements[f].value = profile[f] || '';
+    original[f] = profile[f] || '';
+  }
+  form.dataset.original = JSON.stringify(original);
+
+  $('#edit-relink-form').dataset.internalId = profile.internal_id;
+  $('#edit-notify-btn').dataset.internalId = profile.internal_id;
+  $('#edit-save-result').textContent = '';
+  $('#edit-relink-result').textContent = '';
+  $('#edit-notify-result').textContent = '';
+
+  $('#edit-modal').hidden = false;
+}
+
+$('#edit-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const internal_id = form.dataset.internalId;
+  const original = JSON.parse(form.dataset.original || '{}');
+  const changed = EDIT_FIELDS.filter((f) => (form.elements[f].value || '') !== (original[f] || ''));
+
+  if (changed.length === 0) {
+    $('#edit-save-result').textContent = 'Nothing changed';
+    $('#edit-save-result').className = 'result-msg';
+    return;
+  }
+
+  const results = [];
+  for (const field of changed) {
+    const { status, json } = await api('/update-profile', {
+      method: 'POST',
+      body: { internal_id, field, new_value: form.elements[field].value, dry_run: isDryRun() },
+    });
+    results.push({ field, status, json });
+  }
+
+  const allOk = results.every((r) => r.status === 200);
+  const dryTag = isDryRun() ? ' [DRY RUN — nothing written]' : '';
+  const summary = results.map((r) => `${r.field}: ${r.status === 200 ? 'OK' : r.json.message || r.json.error || 'failed'}`).join(' | ');
+  $('#edit-save-result').textContent = `${allOk ? 'Saved' : 'Some fields failed'}${dryTag} — ${summary}`;
+  $('#edit-save-result').className = `result-msg ${allOk ? 'ok' : 'err'}`;
+
+  if (allOk && !isDryRun()) {
+    const detail = await fetchProfileDetail(internal_id);
+    if (detail) {
+      const fresh = {};
+      for (const f of EDIT_FIELDS) fresh[f] = detail.profile[f] || '';
+      form.dataset.original = JSON.stringify(fresh);
+    }
+    refreshTables();
+  }
+});
+
+$('#edit-relink-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const internal_id = form.dataset.internalId;
+  const new_line_uid = form.new_line_uid.value;
+  const { status, json } = await api('/relink-line-uid', { method: 'POST', body: { internal_id, new_line_uid, dry_run: isDryRun() } });
+  resultLine($('#edit-relink-result'), status, json);
+  if (status === 200 && !isDryRun()) {
+    form.reset();
+    await fetchProfileDetail(internal_id);
+    refreshTables();
+  }
+});
+
+$('#edit-notify-btn').addEventListener('click', async () => {
+  const internal_id = $('#edit-notify-btn').dataset.internalId;
+  const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, dry_run: isDryRun() } });
+  resultLine($('#edit-notify-result'), status, json);
+});
+
+function refreshTables() {
+  loadDashboardTable(true);
+  searchProfiles(true);
+}
+
+// ---------- Dashboard tab ----------
+
+let statCharts = { cumulative: null, daily: null };
+
+async function loadStatsOverview() {
+  const { json } = await api('/stats/overview');
+  if (!json || json.total_affiliates === undefined) return;
+
+  $('#stat-total').textContent = fmtNum(json.total_affiliates);
+  $('#stat-total-sub').innerHTML = `${json.net_increase_30d >= 0 ? '+' : ''}${fmtNum(json.net_increase_30d)} last 30 days (${pctSpan(json.pct_change_30d)})`;
+
+  $('#stat-mtd').textContent = fmtNum(json.mtd_signups);
+  $('#stat-mtd-sub').innerHTML = `${fmtNum(json.prev_month_signups)} last month (${pctSpan(json.pct_change_mom)} MoM)`;
+
+  $('#stat-today').textContent = fmtNum(json.today_signups);
+  $('#stat-today-sub').innerHTML = `${fmtNum(json.yesterday_signups)} yesterday (${pctSpan(json.pct_change_dod)} DoD)`;
+}
+
+function chartOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0 }, grid: { display: false } },
+      y: { beginAtZero: true, grid: { color: '#eef0f3' }, ticks: { precision: 0 } },
+    },
+  };
+}
+
+async function loadTimeseries() {
+  const { json } = await api('/stats/timeseries');
+  if (!json) return;
+
+  const cumulative = json.cumulative || [];
+  const daily = json.daily_new_90d || [];
+
+  if (statCharts.cumulative) statCharts.cumulative.destroy();
+  statCharts.cumulative = new Chart($('#chart-cumulative'), {
+    type: 'line',
+    data: {
+      labels: cumulative.map((d) => d.date),
+      datasets: [{ label: 'Total affiliates', data: cumulative.map((d) => d.total), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.15, pointRadius: 0, borderWidth: 2 }],
+    },
+    options: chartOptions(),
+  });
+
+  if (statCharts.daily) statCharts.daily.destroy();
+  statCharts.daily = new Chart($('#chart-daily'), {
+    type: 'line',
+    data: {
+      labels: daily.map((d) => d.date),
+      datasets: [{ label: 'New signups', data: daily.map((d) => d.count), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)', fill: true, tension: 0.15, pointRadius: 0, borderWidth: 2 }],
+    },
+    options: chartOptions(),
+  });
+}
+
+let dashboardCursor = null;
+
+async function loadDashboardTable(reset = true) {
+  if (reset) dashboardCursor = null;
+  const params = new URLSearchParams({ sort: 'desc', limit: '25' });
+  if (dashboardCursor) params.set('cursor', dashboardCursor);
+  const { json } = await api(`/profiles?${params.toString()}`);
+  const tbody = $('#dashboard-tbody');
+  if (reset) tbody.innerHTML = '';
+  tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p, 'created')).join(''));
+  dashboardCursor = json.next_cursor || null;
+  $('#dashboard-load-more').hidden = !dashboardCursor;
+}
+
+$('#dashboard-load-more').addEventListener('click', () => loadDashboardTable(false));
+bindRowActions($('#dashboard-tbody'));
+
 // ---------- Profiles tab ----------
 
 let profilesCursor = null;
@@ -67,13 +343,7 @@ async function searchProfiles(reset = true) {
   const { json } = await api(`/profiles?${params.toString()}`);
   const tbody = $('#profiles-tbody');
   if (reset) tbody.innerHTML = '';
-  for (const p of json.profiles || []) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><a href="#" class="profile-link" data-id="${esc(p.internal_id)}">${esc(p.internal_id)}</a></td>
-      <td>${esc(p.line_uid)}</td><td>${esc(p.email)}</td><td>${esc(p.phone)}</td>
-      <td>${esc(p.shopify_customer_id) || '—'}</td><td>${fmtTs(p.updated_at)}</td>`;
-    tbody.appendChild(tr);
-  }
+  tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p, 'updated')).join(''));
   profilesCursor = json.next_cursor || null;
   $('#profiles-load-more').hidden = !profilesCursor;
 }
@@ -81,94 +351,7 @@ async function searchProfiles(reset = true) {
 $('#profile-search-btn').addEventListener('click', () => searchProfiles(true));
 $('#profile-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchProfiles(true); });
 $('#profiles-load-more').addEventListener('click', () => searchProfiles(false));
-
-$('#profiles-tbody').addEventListener('click', (e) => {
-  const link = e.target.closest('.profile-link');
-  if (!link) return;
-  e.preventDefault();
-  openProfileDetail(link.dataset.id);
-});
-
-async function openProfileDetail(internalId) {
-  const { status, json } = await api(`/profiles/${encodeURIComponent(internalId)}`);
-  if (status !== 200) {
-    alert(json.message || 'Failed to load profile');
-    return;
-  }
-  const { profile, handles, audit_log, sync_tasks, line_uid_history } = json;
-
-  $('#pd-internal-id').textContent = profile.internal_id;
-  $('#pd-fields').innerHTML = ['line_uid', 'email', 'phone', 'nick_name', 'full_name', 'gender', 'dob', 'shopify_customer_id', 'shopify_synced_at', 'created_at', 'updated_at']
-    .map((f) => {
-      const v = f.endsWith('_at') ? fmtTs(profile[f]) : (profile[f] ?? '—');
-      return `<dt>${f}</dt><dd>${esc(v)}</dd>`;
-    })
-    .join('');
-
-  $('#pd-handles').innerHTML = handles.length
-    ? handles.map((h) => `<li>${esc(h.channel)}: ${esc(h.value)} ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
-    : '<li class="muted">none</li>';
-
-  $('#pd-line-history').innerHTML = line_uid_history.length
-    ? line_uid_history.map((h) => `<li>${esc(h.old_line_uid)} → changed by ${esc(h.changed_by)} at ${fmtTs(h.changed_at)}</li>`).join('')
-    : '<li class="muted">none</li>';
-
-  $('#pd-sync-tasks').innerHTML = sync_tasks.length
-    ? sync_tasks.map((t) => `<li>#${t.id} ${esc(t.status)} (${t.attempts} attempts)${t.last_error ? ` — ${esc(t.last_error)}` : ''} — ${fmtTs(t.updated_at)}
-        ${t.status !== 'success' ? `<button class="link-btn retry-sync-task" data-id="${t.id}">retry</button>` : ''}</li>`).join('')
-    : '<li class="muted">none</li>';
-
-  $('#pd-audit-log').innerHTML = audit_log.length
-    ? audit_log.map((a) => `<li>[${esc(a.actor_type)}${a.actor_id ? `:${esc(a.actor_id)}` : ''}] ${esc(a.field)}: ${esc(a.old_value)} → ${esc(a.new_value)} — ${fmtTs(a.occurred_at)}</li>`).join('')
-    : '<li class="muted">none</li>';
-
-  $('#pd-edit-form').dataset.internalId = profile.internal_id;
-  $('#pd-relink-form').dataset.internalId = profile.internal_id;
-  $('#pd-notify-form').dataset.internalId = profile.internal_id;
-  $('#pd-edit-result').textContent = '';
-  $('#pd-relink-result').textContent = '';
-  $('#pd-notify-result').textContent = '';
-
-  $('#profile-detail').hidden = false;
-}
-
-$('#profile-detail-close').addEventListener('click', () => { $('#profile-detail').hidden = true; });
-
-$('#pd-edit-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const internal_id = form.dataset.internalId;
-  const field = form.field.value;
-  const new_value = form.new_value.value;
-  const { status, json } = await api('/update-profile', { method: 'POST', body: { internal_id, field, new_value, dry_run: isDryRun() } });
-  resultLine($('#pd-edit-result'), status, json);
-  if (status === 200 && !isDryRun()) openProfileDetail(internal_id);
-});
-
-$('#pd-relink-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const internal_id = form.dataset.internalId;
-  const new_line_uid = form.new_line_uid.value;
-  const { status, json } = await api('/relink-line-uid', { method: 'POST', body: { internal_id, new_line_uid, dry_run: isDryRun() } });
-  resultLine($('#pd-relink-result'), status, json);
-  if (status === 200 && !isDryRun()) openProfileDetail(internal_id);
-});
-
-$('#pd-notify-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const internal_id = e.target.dataset.internalId;
-  const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, dry_run: isDryRun() } });
-  resultLine($('#pd-notify-result'), status, json);
-});
-
-$('#pd-sync-tasks').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.retry-sync-task');
-  if (!btn) return;
-  const { status, json } = await api(`/sync-tasks/${btn.dataset.id}/retry`, { method: 'POST', body: { dry_run: isDryRun() } });
-  alert(status === 200 ? `Retried${json.dry_run ? ' (dry run)' : ''}` : json.message || 'Failed');
-  if (status === 200 && !isDryRun()) openProfileDetail($('#pd-edit-form').dataset.internalId);
-});
+bindRowActions($('#profiles-tbody'));
 
 // ---------- Errors tab ----------
 
@@ -238,6 +421,9 @@ $('#sync-tasks-tbody').addEventListener('click', async (e) => {
 // ---------- init ----------
 
 loadWhoami();
+loadStatsOverview();
+loadTimeseries();
+loadDashboardTable(true);
 searchProfiles(true);
 loadErrors();
 loadSyncTasks();

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>arm-worker-v2 admin</title>
 <link rel="stylesheet" href="/assets/style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -20,78 +21,65 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="profiles">Profiles</button>
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="profiles">Profiles</button>
     <button class="tab-btn" data-tab="errors">Errors</button>
     <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
   </nav>
 
   <main>
-    <section id="tab-profiles" class="tab-panel active">
+    <section id="tab-dashboard" class="tab-panel active">
+      <div class="stat-cards">
+        <div class="stat-card">
+          <div class="stat-label">Total Affiliates</div>
+          <div class="stat-value" id="stat-total">—</div>
+          <div class="stat-sub" id="stat-total-sub">&nbsp;</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">New Signups (MTD)</div>
+          <div class="stat-value" id="stat-mtd">—</div>
+          <div class="stat-sub" id="stat-mtd-sub">&nbsp;</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">New Signups (Today)</div>
+          <div class="stat-value" id="stat-today">—</div>
+          <div class="stat-sub" id="stat-today-sub">&nbsp;</div>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-card">
+          <h3>Cumulative Total Affiliates</h3>
+          <div class="chart-wrap"><canvas id="chart-cumulative"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Daily New Affiliates (last 90 days)</h3>
+          <div class="chart-wrap"><canvas id="chart-daily"></canvas></div>
+        </div>
+      </div>
+
+      <h3 class="section-heading">Recent Affiliates</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>Internal ID</th><th>Line UID</th><th>Email</th><th>Phone</th><th>Shopify Customer</th><th>Signed up</th><th></th></tr>
+        </thead>
+        <tbody id="dashboard-tbody"></tbody>
+      </table>
+      <button id="dashboard-load-more" hidden>Load more</button>
+    </section>
+
+    <section id="tab-profiles" class="tab-panel">
       <div class="panel-toolbar">
         <input type="search" id="profile-search" placeholder="Search internal_id / email / phone / line_uid" />
         <button id="profile-search-btn">Search</button>
       </div>
       <table class="data-table">
         <thead>
-          <tr><th>Internal ID</th><th>Line UID</th><th>Email</th><th>Phone</th><th>Shopify Customer</th><th>Updated</th></tr>
+          <tr><th>Internal ID</th><th>Line UID</th><th>Email</th><th>Phone</th><th>Shopify Customer</th><th>Updated</th><th></th></tr>
         </thead>
         <tbody id="profiles-tbody"></tbody>
       </table>
       <button id="profiles-load-more" hidden>Load more</button>
-
-      <div id="profile-detail" class="detail-panel" hidden>
-        <button id="profile-detail-close" class="link-btn">← Back to list</button>
-        <h2 id="pd-internal-id"></h2>
-        <div class="detail-grid">
-          <div>
-            <h3>Profile</h3>
-            <dl id="pd-fields"></dl>
-
-            <h3>Edit a field</h3>
-            <form id="pd-edit-form" class="inline-form">
-              <select name="field" required>
-                <option value="">Choose field…</option>
-                <option value="email">email</option>
-                <option value="phone">phone</option>
-                <option value="nick_name">nick_name</option>
-                <option value="full_name">full_name</option>
-                <option value="gender">gender</option>
-                <option value="dob">dob</option>
-              </select>
-              <input type="text" name="new_value" placeholder="New value" required />
-              <button type="submit">Save</button>
-            </form>
-            <p id="pd-edit-result" class="result-msg"></p>
-
-            <h3>Relink LINE UID</h3>
-            <form id="pd-relink-form" class="inline-form">
-              <input type="text" name="new_line_uid" placeholder="New line_uid" required />
-              <button type="submit">Relink</button>
-            </form>
-            <p id="pd-relink-result" class="result-msg"></p>
-
-            <h3>Notify</h3>
-            <form id="pd-notify-form" class="inline-form">
-              <button type="submit">Send profile card</button>
-            </form>
-            <p id="pd-notify-result" class="result-msg"></p>
-          </div>
-
-          <div>
-            <h3>Handles</h3>
-            <ul id="pd-handles" class="plain-list"></ul>
-
-            <h3>LINE UID history</h3>
-            <ul id="pd-line-history" class="plain-list"></ul>
-
-            <h3>Sync tasks</h3>
-            <ul id="pd-sync-tasks" class="plain-list"></ul>
-
-            <h3>Audit log</h3>
-            <ul id="pd-audit-log" class="plain-list"></ul>
-          </div>
-        </div>
-      </div>
     </section>
 
     <section id="tab-errors" class="tab-panel">
@@ -129,6 +117,69 @@
       </table>
     </section>
   </main>
+
+  <!-- View modal: read-only profile detail -->
+  <div id="view-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="view-modal-close" aria-label="Close">&times;</button>
+      <h2 id="view-internal-id"></h2>
+      <div class="detail-grid">
+        <div>
+          <h3>Profile</h3>
+          <dl id="view-fields"></dl>
+        </div>
+        <div>
+          <h3>Handles</h3>
+          <ul id="view-handles" class="plain-list"></ul>
+          <h3>LINE UID history</h3>
+          <ul id="view-line-history" class="plain-list"></ul>
+          <h3>Sync tasks</h3>
+          <ul id="view-sync-tasks" class="plain-list"></ul>
+          <h3>Audit log</h3>
+          <ul id="view-audit-log" class="plain-list"></ul>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="view-edit-btn">Edit</button>
+        <button id="view-close-btn" class="secondary-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit modal: editable fields + relink + notify -->
+  <div id="edit-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="edit-modal-close" aria-label="Close">&times;</button>
+      <h2 id="edit-internal-id"></h2>
+
+      <form id="edit-form">
+        <div class="edit-grid">
+          <label>Email <input type="text" name="email" /></label>
+          <label>Phone <input type="text" name="phone" /></label>
+          <label>Nick name <input type="text" name="nick_name" /></label>
+          <label>Full name <input type="text" name="full_name" /></label>
+          <label>Gender <input type="text" name="gender" /></label>
+          <label>DOB <input type="text" name="dob" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="edit-close-btn" class="secondary-btn">Close</button>
+        </div>
+      </form>
+      <p id="edit-save-result" class="result-msg"></p>
+
+      <h3>Relink LINE UID</h3>
+      <form id="edit-relink-form" class="inline-form">
+        <input type="text" name="new_line_uid" placeholder="New line_uid" required />
+        <button type="submit">Relink</button>
+      </form>
+      <p id="edit-relink-result" class="result-msg"></p>
+
+      <h3>Notify</h3>
+      <button id="edit-notify-btn" type="button">Send profile card</button>
+      <p id="edit-notify-result" class="result-msg"></p>
+    </div>
+  </div>
 
   <script src="/assets/app.js"></script>
 </body>

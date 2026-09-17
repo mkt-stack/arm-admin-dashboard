@@ -198,6 +198,16 @@ api.get('/profiles', async (req, res) => {
   res.status(status).json(json);
 });
 
+api.get('/stats/overview', async (req, res) => {
+  const { status, json } = await callWorker('/admin/stats/overview');
+  res.status(status).json(json);
+});
+
+api.get('/stats/timeseries', async (req, res) => {
+  const { status, json } = await callWorker('/admin/stats/timeseries');
+  res.status(status).json(json);
+});
+
 api.get('/profiles/:id', async (req, res) => {
   const { status, json } = await callWorker(`/admin/profiles/${encodeURIComponent(req.params.id)}`);
   res.status(status).json(json);
