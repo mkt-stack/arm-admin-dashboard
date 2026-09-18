@@ -254,6 +254,15 @@ api.post('/sync-tasks/:id/retry', async (req, res) => {
   res.status(status).json(json);
 });
 
+api.post('/handles/:id', async (req, res) => {
+  const { new_value, dry_run } = req.body || {};
+  const { status, json } = await callWorker(`/admin/handles/${encodeURIComponent(req.params.id)}`, {
+    method: 'POST',
+    body: { new_value, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
 api.post('/update-profile', async (req, res) => {
   const { internal_id, field, new_value, dry_run } = req.body || {};
   const { status, json } = await callWorker('/admin-update-profile', {

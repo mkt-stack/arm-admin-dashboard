@@ -141,6 +141,14 @@ main { padding: 1.5rem; }
 
 .section-heading { font-size: 1rem; color: var(--text); margin: 1.75rem 0 0.75rem; }
 
+/* ---------- Dashboard: toolbar ---------- */
+
+.dashboard-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
 /* ---------- Dashboard: stat cards ---------- */
 
 .stat-cards {
@@ -155,6 +163,15 @@ main { padding: 1.5rem; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.1rem 1.3rem;
+}
+
+.stat-card-link {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.stat-card-link:hover, .stat-card-link:focus-visible {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .stat-label { font-size: 0.8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -197,6 +214,52 @@ main { padding: 1.5rem; }
 .funnel-legend li { display: flex; justify-content: space-between; gap: 0.5rem; }
 .funnel-legend .funnel-count { color: var(--muted); }
 
+/* ---------- Profiles tab: nested handle rows ---------- */
+
+.profile-row td { border-bottom: none; }
+
+.handle-row td { border-bottom: 1px solid var(--border); }
+
+.handle-indent { width: 2rem; background: #fafbfc; }
+
+.handle-cell {
+  background: #fafbfc;
+  padding-top: 0.45rem !important;
+  padding-bottom: 0.45rem !important;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+
+.handle-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: white;
+  flex: none;
+}
+.ch-tiktok { background: #010101; }
+.ch-shopee { background: #ee4d2d; }
+.ch-lazada { background: #0f146d; }
+.ch-affplus { background: #7c3aed; }
+.ch-other { background: #64748b; }
+
+.handle-value-edit { display: none; padding: 0.25rem 0.5rem; font-size: 0.82rem; max-width: 220px; }
+.handle-row.editing .handle-value-view { display: none; }
+.handle-row.editing .handle-value-edit { display: inline-block; }
+
+.handle-date { font-size: 0.75rem; }
+.handle-inactive { color: var(--danger); font-size: 0.75rem; }
+.handle-row-actions { display: flex; gap: 0.25rem; margin-left: auto; }
+.handle-result { min-height: 0; }
+
 /* ---------- Icon action buttons in table rows ---------- */
 
 .row-actions { display: flex; gap: 0.3rem; white-space: nowrap; }
@@ -216,6 +279,12 @@ main { padding: 1.5rem; }
   justify-content: center;
 }
 .icon-btn:hover { background: var(--bg); opacity: 1; }
+/* Same specificity tie as `.modal-overlay[hidden]` above: a bare class
+   selector and `[hidden]` are equally specific, and `.icon-btn`'s
+   `display: inline-flex` was winning the tie, so `hidden` handle-row
+   save/cancel buttons stayed visible. This attribute-qualified rule breaks
+   the tie in `[hidden]`'s favor. */
+.icon-btn[hidden] { display: none; }
 
 /* ---------- Modals ---------- */
 
@@ -283,6 +352,18 @@ main { padding: 1.5rem; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; font-size: 0.85rem; }
 dt { color: var(--muted); }
 dd { margin: 0; }
+
+/* ---------- Unified profile view/edit modal ---------- */
+
+.profile-field-list .pm-input {
+  display: none;
+  width: 100%;
+  max-width: 260px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+#profile-modal.editing .profile-field-list .pm-view[data-field] { display: none; }
+#profile-modal.editing .profile-field-list .pm-input { display: inline-block; }
 
 .plain-list { list-style: none; margin: 0; padding: 0; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.3rem; }
 

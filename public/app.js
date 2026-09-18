@@ -62,31 +62,132 @@ $all('.tab-btn').forEach((btn) => {
   });
 });
 
-// ---------- shared: profile row rendering + view/edit modals ----------
+// ---------- shared: profile row rendering (parent + nested handle rows) ----------
 
-function profileRowHtml(p, dateField) {
-  return `<tr>
+const CHANNEL_META = {
+  tiktok: { label: 'TikTok', cls: 'ch-tiktok', abbr: 'TT' },
+  shopee: { label: 'Shopee', cls: 'ch-shopee', abbr: 'SH' },
+  lazada: { label: 'Lazada', cls: 'ch-lazada', abbr: 'LZ' },
+  affiliate_plus: { label: 'Affiliate+', cls: 'ch-affplus', abbr: 'A+' },
+};
+
+function channelBadge(channel) {
+  const meta = CHANNEL_META[channel] || { label: channel, cls: 'ch-other', abbr: String(channel || '?').slice(0, 2).toUpperCase() };
+  return `<span class="handle-badge ${meta.cls}" title="${esc(meta.label)}">${esc(meta.abbr)}</span>`;
+}
+
+// Profiles table has 11 columns (see index.html thead); handle rows span all
+// but a leading indent cell.
+const PROFILE_COLSPAN = 11;
+
+function profileRowHtml(p) {
+  const handles = p.handles || [];
+  const parentRow = `<tr class="profile-row" data-id="${esc(p.internal_id)}">
     <td>${esc(p.internal_id)}</td>
     <td>${esc(p.line_uid)}</td>
     <td>${esc(p.email)}</td>
     <td>${esc(p.phone)}</td>
+    <td>${esc(p.nick_name) || '—'}</td>
+    <td>${esc(p.full_name) || '—'}</td>
+    <td>${esc(p.gender) || '—'}</td>
+    <td>${p.age ?? '—'}</td>
     <td>${esc(p.shopify_customer_id) || '—'}</td>
-    <td>${fmtTs(dateField === 'created' ? p.created_at : p.updated_at)}</td>
+    <td>${fmtTs(p.updated_at)}</td>
     <td class="row-actions">
       <button class="icon-btn view-btn" data-id="${esc(p.internal_id)}" title="View">&#128065;</button>
       <button class="icon-btn edit-btn" data-id="${esc(p.internal_id)}" title="Edit">&#9998;</button>
     </td>
   </tr>`;
+
+  const handleRows = handles.length
+    ? handles
+        .map(
+          (h) => `<tr class="handle-row" data-handle-id="${h.id}">
+        <td class="handle-indent"></td>
+        <td colspan="${PROFILE_COLSPAN - 1}" class="handle-cell">
+          ${channelBadge(h.channel)}
+          <span class="handle-value-view">${esc(h.value)}</span>
+          <input class="handle-value-edit" type="text" value="${esc(h.value)}" />
+          <span class="handle-date muted">connected ${fmtTs(h.registered_at)}</span>
+          ${h.is_active ? '' : '<span class="handle-inactive">(inactive)</span>'}
+          <span class="handle-row-actions">
+            <button class="icon-btn handle-edit-btn" title="Edit handle">&#9998;</button>
+            <button class="icon-btn handle-save-btn" hidden title="Save">&#10003;</button>
+            <button class="icon-btn handle-cancel-btn" hidden title="Cancel">&times;</button>
+          </span>
+          <span class="handle-result result-msg"></span>
+        </td>
+      </tr>`
+        )
+        .join('')
+    : `<tr class="handle-row handle-row-empty"><td class="handle-indent"></td><td colspan="${PROFILE_COLSPAN - 1}" class="muted handle-cell">No handles linked</td></tr>`;
+
+  return parentRow + handleRows;
 }
 
 function bindRowActions(tbodyEl) {
   tbodyEl.addEventListener('click', (e) => {
     const viewBtn = e.target.closest('.view-btn');
     const editBtn = e.target.closest('.edit-btn');
-    if (viewBtn) openView(viewBtn.dataset.id);
-    else if (editBtn) openEdit(editBtn.dataset.id);
+    const handleEditBtn = e.target.closest('.handle-edit-btn');
+    const handleSaveBtn = e.target.closest('.handle-save-btn');
+    const handleCancelBtn = e.target.closest('.handle-cancel-btn');
+
+    if (viewBtn) return openProfileModal(viewBtn.dataset.id, false);
+    if (editBtn) return openProfileModal(editBtn.dataset.id, true);
+    if (handleEditBtn) return setHandleRowEditing(handleEditBtn.closest('tr'), true);
+    if (handleCancelBtn) return setHandleRowEditing(handleCancelBtn.closest('tr'), false);
+    if (handleSaveBtn) return saveHandleEdit(handleSaveBtn.closest('tr'));
   });
 }
+
+function setHandleRowEditing(tr, editing) {
+  tr.classList.toggle('editing', editing);
+  tr.querySelector('.handle-edit-btn').hidden = editing;
+  tr.querySelector('.handle-save-btn').hidden = !editing;
+  tr.querySelector('.handle-cancel-btn').hidden = !editing;
+  const resultEl = tr.querySelector('.handle-result');
+  if (!editing) {
+    resultEl.textContent = '';
+    resultEl.className = 'handle-result result-msg';
+    tr.querySelector('.handle-value-edit').value = tr.querySelector('.handle-value-view').textContent;
+  }
+}
+
+async function saveHandleEdit(tr) {
+  const id = tr.dataset.handleId;
+  const input = tr.querySelector('.handle-value-edit');
+  const viewEl = tr.querySelector('.handle-value-view');
+  const resultEl = tr.querySelector('.handle-result');
+  const newValue = input.value.trim();
+
+  if (!newValue || newValue === viewEl.textContent) {
+    return setHandleRowEditing(tr, false);
+  }
+
+  const { status, json } = await api(`/handles/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    body: { new_value: newValue, dry_run: isDryRun() },
+  });
+
+  if (status === 200) {
+    const dryTag = json.dry_run ? ' [DRY RUN]' : '';
+    resultEl.textContent = `Saved${dryTag}`;
+    resultEl.className = 'handle-result result-msg ok';
+    if (!json.dry_run) {
+      viewEl.textContent = json.new_value;
+      setHandleRowEditing(tr, false);
+    }
+  } else {
+    resultEl.textContent = json.message || json.error || 'Failed to save';
+    resultEl.className = 'handle-result result-msg err';
+  }
+}
+
+// ---------- shared: unified view/edit profile modal ----------
+
+const EDIT_FIELDS = ['email', 'phone', 'nick_name', 'full_name', 'gender', 'dob'];
+const READONLY_FIELDS = ['line_uid', 'shopify_customer_id', 'shopify_synced_at', 'created_at', 'updated_at'];
 
 let currentDetail = null;
 
@@ -102,105 +203,109 @@ async function fetchProfileDetail(internalId) {
 
 function closeModal(el) { el.hidden = true; }
 
-[$('#view-modal'), $('#edit-modal')].forEach((overlay) => {
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(overlay); });
-});
-$('#view-modal-close').addEventListener('click', () => closeModal($('#view-modal')));
-$('#view-close-btn').addEventListener('click', () => closeModal($('#view-modal')));
-$('#edit-modal-close').addEventListener('click', () => closeModal($('#edit-modal')));
-$('#edit-close-btn').addEventListener('click', () => closeModal($('#edit-modal')));
+$('#profile-modal').addEventListener('click', (e) => { if (e.target === $('#profile-modal')) closeModal($('#profile-modal')); });
+$('#profile-modal-close').addEventListener('click', () => closeModal($('#profile-modal')));
+$('#pm-close-btn').addEventListener('click', () => closeModal($('#profile-modal')));
 
-async function openView(internalId) {
+async function openProfileModal(internalId, editing) {
   const detail = await fetchProfileDetail(internalId);
   if (!detail) return;
-  renderView(detail);
-  $('#view-modal').hidden = false;
+  renderProfileModal(detail);
+  setModalEditing(editing);
+  $('#profile-modal').hidden = false;
 }
 
-function renderView(detail) {
+function renderProfileModal(detail) {
   const { profile, handles, audit_log, sync_tasks, line_uid_history } = detail;
 
-  $('#view-internal-id').textContent = profile.internal_id;
-  $('#view-fields').innerHTML = ['line_uid', 'email', 'phone', 'nick_name', 'full_name', 'gender', 'dob', 'shopify_customer_id', 'shopify_synced_at', 'created_at', 'updated_at']
-    .map((f) => {
-      const v = f.endsWith('_at') ? fmtTs(profile[f]) : (profile[f] ?? '—');
-      return `<dt>${f}</dt><dd>${esc(v)}</dd>`;
-    })
-    .join('');
+  $('#pm-internal-id').textContent = profile.internal_id;
 
-  $('#view-handles').innerHTML = handles.length
-    ? handles.map((h) => `<li>${esc(h.channel)}: ${esc(h.value)} ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
+  const form = $('#pm-form');
+  form.dataset.internalId = profile.internal_id;
+
+  const editableRows = EDIT_FIELDS.map((f) => {
+    const v = profile[f] || '';
+    return `<dt>${f}</dt><dd>
+      <span class="pm-view" data-field="${f}">${esc(v) || '—'}</span>
+      <input class="pm-input" name="${f}" type="text" value="${esc(v)}" />
+    </dd>`;
+  }).join('');
+
+  const readonlyRows = READONLY_FIELDS.map((f) => {
+    const v = f.endsWith('_at') ? fmtTs(profile[f]) : (profile[f] ?? '—');
+    return `<dt>${f}</dt><dd><span class="pm-view">${esc(v)}</span></dd>`;
+  }).join('');
+
+  $('#pm-fields').innerHTML = editableRows + readonlyRows;
+
+  const original = {};
+  for (const f of EDIT_FIELDS) original[f] = profile[f] || '';
+  form.dataset.original = JSON.stringify(original);
+
+  $('#pm-handles').innerHTML = handles.length
+    ? handles.map((h) => `<li>${channelBadge(h.channel)} ${esc(h.value)} ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
     : '<li class="muted">none</li>';
 
-  $('#view-line-history').innerHTML = line_uid_history.length
+  $('#pm-line-history').innerHTML = line_uid_history.length
     ? line_uid_history.map((h) => `<li>${esc(h.old_line_uid)} → changed by ${esc(h.changed_by)} at ${fmtTs(h.changed_at)}</li>`).join('')
     : '<li class="muted">none</li>';
 
-  $('#view-sync-tasks').innerHTML = sync_tasks.length
+  $('#pm-sync-tasks').innerHTML = sync_tasks.length
     ? sync_tasks.map((t) => `<li>#${t.id} ${esc(t.status)} (${t.attempts} attempts)${t.last_error ? ` — ${esc(t.last_error)}` : ''} — ${fmtTs(t.updated_at)}
         ${t.status !== 'success' ? `<button class="link-btn retry-sync-task" data-id="${t.id}">retry</button>` : ''}</li>`).join('')
     : '<li class="muted">none</li>';
 
-  $('#view-audit-log').innerHTML = audit_log.length
+  $('#pm-audit-log').innerHTML = audit_log.length
     ? audit_log.map((a) => `<li>[${esc(a.actor_type)}${a.actor_id ? `:${esc(a.actor_id)}` : ''}] ${esc(a.field)}: ${esc(a.old_value)} → ${esc(a.new_value)} — ${fmtTs(a.occurred_at)}</li>`).join('')
     : '<li class="muted">none</li>';
 
-  $('#view-edit-btn').dataset.internalId = profile.internal_id;
+  $('#pm-relink-form').dataset.internalId = profile.internal_id;
+  $('#pm-notify-btn').dataset.internalId = profile.internal_id;
+  $('#pm-save-result').textContent = '';
+  $('#pm-relink-result').textContent = '';
+  $('#pm-notify-result').textContent = '';
 }
 
-$('#view-edit-btn').addEventListener('click', () => {
-  const id = $('#view-edit-btn').dataset.internalId;
-  closeModal($('#view-modal'));
-  openEdit(id);
+function setModalEditing(editing) {
+  const modal = $('#profile-modal');
+  modal.classList.toggle('editing', editing);
+  $('#pm-edit-btn').hidden = editing;
+  $('#pm-save-btn').hidden = !editing;
+  $('#pm-cancel-btn').hidden = !editing;
+  $('#pm-relink-section').hidden = !editing;
+  $('#pm-notify-section').hidden = !editing;
+}
+
+$('#pm-edit-btn').addEventListener('click', () => setModalEditing(true));
+
+$('#pm-cancel-btn').addEventListener('click', () => {
+  const form = $('#pm-form');
+  const original = JSON.parse(form.dataset.original || '{}');
+  for (const f of EDIT_FIELDS) { if (form.elements[f]) form.elements[f].value = original[f] || ''; }
+  $('#pm-save-result').textContent = '';
+  setModalEditing(false);
 });
 
-$('#view-sync-tasks').addEventListener('click', async (e) => {
+$('#pm-sync-tasks').addEventListener('click', async (e) => {
   const btn = e.target.closest('.retry-sync-task');
   if (!btn) return;
   const { status, json } = await api(`/sync-tasks/${btn.dataset.id}/retry`, { method: 'POST', body: { dry_run: isDryRun() } });
   alert(status === 200 ? `Retried${json.dry_run ? ' (dry run)' : ''}` : json.message || 'Failed');
   if (status === 200 && !isDryRun()) {
-    const detail = await fetchProfileDetail($('#view-internal-id').textContent);
-    if (detail) renderView(detail);
+    const detail = await fetchProfileDetail($('#pm-internal-id').textContent);
+    if (detail) renderProfileModal(detail);
   }
 });
 
-const EDIT_FIELDS = ['email', 'phone', 'nick_name', 'full_name', 'gender', 'dob'];
-
-async function openEdit(internalId) {
-  const detail = currentDetail && currentDetail.profile.internal_id === internalId ? currentDetail : await fetchProfileDetail(internalId);
-  if (!detail) return;
-  const { profile } = detail;
-
-  $('#edit-internal-id').textContent = profile.internal_id;
-  const form = $('#edit-form');
-  form.dataset.internalId = profile.internal_id;
-  const original = {};
-  for (const f of EDIT_FIELDS) {
-    form.elements[f].value = profile[f] || '';
-    original[f] = profile[f] || '';
-  }
-  form.dataset.original = JSON.stringify(original);
-
-  $('#edit-relink-form').dataset.internalId = profile.internal_id;
-  $('#edit-notify-btn').dataset.internalId = profile.internal_id;
-  $('#edit-save-result').textContent = '';
-  $('#edit-relink-result').textContent = '';
-  $('#edit-notify-result').textContent = '';
-
-  $('#edit-modal').hidden = false;
-}
-
-$('#edit-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
+$('#pm-save-btn').addEventListener('click', async () => {
+  const form = $('#pm-form');
   const internal_id = form.dataset.internalId;
   const original = JSON.parse(form.dataset.original || '{}');
   const changed = EDIT_FIELDS.filter((f) => (form.elements[f].value || '') !== (original[f] || ''));
 
   if (changed.length === 0) {
-    $('#edit-save-result').textContent = 'Nothing changed';
-    $('#edit-save-result').className = 'result-msg';
+    $('#pm-save-result').textContent = 'Nothing changed';
+    $('#pm-save-result').className = 'result-msg';
     return;
   }
 
@@ -216,42 +321,43 @@ $('#edit-form').addEventListener('submit', async (e) => {
   const allOk = results.every((r) => r.status === 200);
   const dryTag = isDryRun() ? ' [DRY RUN — nothing written]' : '';
   const summary = results.map((r) => `${r.field}: ${r.status === 200 ? 'OK' : r.json.message || r.json.error || 'failed'}`).join(' | ');
-  $('#edit-save-result').textContent = `${allOk ? 'Saved' : 'Some fields failed'}${dryTag} — ${summary}`;
-  $('#edit-save-result').className = `result-msg ${allOk ? 'ok' : 'err'}`;
 
   if (allOk && !isDryRun()) {
     const detail = await fetchProfileDetail(internal_id);
-    if (detail) {
-      const fresh = {};
-      for (const f of EDIT_FIELDS) fresh[f] = detail.profile[f] || '';
-      form.dataset.original = JSON.stringify(fresh);
-    }
+    if (detail) renderProfileModal(detail); // clears #pm-save-result — set the message after
+    setModalEditing(false);
     refreshTables();
   }
+
+  $('#pm-save-result').textContent = `${allOk ? 'Saved' : 'Some fields failed'}${dryTag} — ${summary}`;
+  $('#pm-save-result').className = `result-msg ${allOk ? 'ok' : 'err'}`;
 });
 
-$('#edit-relink-form').addEventListener('submit', async (e) => {
+$('#pm-relink-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
   const internal_id = form.dataset.internalId;
   const new_line_uid = form.new_line_uid.value;
   const { status, json } = await api('/relink-line-uid', { method: 'POST', body: { internal_id, new_line_uid, dry_run: isDryRun() } });
-  resultLine($('#edit-relink-result'), status, json);
   if (status === 200 && !isDryRun()) {
     form.reset();
-    await fetchProfileDetail(internal_id);
+    const detail = await fetchProfileDetail(internal_id);
+    if (detail) renderProfileModal(detail); // clears #pm-relink-result — set the message after
     refreshTables();
   }
+  resultLine($('#pm-relink-result'), status, json);
 });
 
-$('#edit-notify-btn').addEventListener('click', async () => {
-  const internal_id = $('#edit-notify-btn').dataset.internalId;
+$('#pm-notify-btn').addEventListener('click', async () => {
+  const internal_id = $('#pm-notify-btn').dataset.internalId;
   const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, dry_run: isDryRun() } });
-  resultLine($('#edit-notify-result'), status, json);
+  resultLine($('#pm-notify-result'), status, json);
 });
 
 function refreshTables() {
-  loadDashboardTable(true);
+  loadStatsOverview();
+  loadTimeseries();
+  loadDemographics();
   searchProfiles(true);
 }
 
@@ -273,7 +379,39 @@ async function loadStatsOverview() {
 
   $('#stat-today').textContent = fmtNum(json.today_signups);
   $('#stat-today-sub').innerHTML = `${fmtNum(json.yesterday_signups)} yesterday (${pctSpan(json.pct_change_dod)} DoD)`;
+
+  $('#stat-handles').textContent = fmtNum(json.handles_linked);
+  $('#stat-open-errors').textContent = fmtNum(json.open_errors);
 }
+
+function goToErrorsTab() {
+  $all('.tab-btn').forEach((b) => b.classList.remove('active'));
+  $all('.tab-panel').forEach((p) => p.classList.remove('active'));
+  $('.tab-btn[data-tab="errors"]').classList.add('active');
+  $('#tab-errors').classList.add('active');
+  $('#errors-status').value = 'open';
+  loadErrors();
+}
+
+$('#stat-card-errors').addEventListener('click', goToErrorsTab);
+$('#stat-card-errors').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToErrorsTab(); }
+});
+
+async function refreshDashboard() {
+  const btn = $('#dashboard-refresh-btn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  try {
+    await Promise.all([loadStatsOverview(), loadTimeseries(), loadDemographics()]);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+$('#dashboard-refresh-btn').addEventListener('click', refreshDashboard);
 
 function chartOptions() {
   return {
@@ -391,23 +529,6 @@ function renderFunnelChart(funnel) {
     .join('');
 }
 
-let dashboardCursor = null;
-
-async function loadDashboardTable(reset = true) {
-  if (reset) dashboardCursor = null;
-  const params = new URLSearchParams({ sort: 'desc', limit: '25' });
-  if (dashboardCursor) params.set('cursor', dashboardCursor);
-  const { json } = await api(`/profiles?${params.toString()}`);
-  const tbody = $('#dashboard-tbody');
-  if (reset) tbody.innerHTML = '';
-  tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p, 'created')).join(''));
-  dashboardCursor = json.next_cursor || null;
-  $('#dashboard-load-more').hidden = !dashboardCursor;
-}
-
-$('#dashboard-load-more').addEventListener('click', () => loadDashboardTable(false));
-bindRowActions($('#dashboard-tbody'));
-
 // ---------- Profiles tab ----------
 
 let profilesCursor = null;
@@ -421,7 +542,7 @@ async function searchProfiles(reset = true) {
   const { json } = await api(`/profiles?${params.toString()}`);
   const tbody = $('#profiles-tbody');
   if (reset) tbody.innerHTML = '';
-  tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p, 'updated')).join(''));
+  tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p)).join(''));
   profilesCursor = json.next_cursor || null;
   $('#profiles-load-more').hidden = !profilesCursor;
 }
@@ -502,7 +623,6 @@ loadWhoami();
 loadStatsOverview();
 loadTimeseries();
 loadDemographics();
-loadDashboardTable(true);
 searchProfiles(true);
 loadErrors();
 loadSyncTasks();
