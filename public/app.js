@@ -114,32 +114,38 @@ function profileRowHtml(p) {
 
   const hiddenAttr = expanded ? '' : ' hidden';
 
-  const handleRows = handles.length
-    ? handles
-        .map(
-          (h) => `<tr class="handle-row" data-handle-id="${h.id}" data-parent="${esc(p.internal_id)}"${hiddenAttr}>
+  // One row per profile holding a grid of handle "cards" (up to 6 per line,
+  // wrapping to a new line after that) rather than one row per handle.
+  const handleRow = handles.length
+    ? `<tr class="handle-row" data-parent="${esc(p.internal_id)}"${hiddenAttr}>
         <td class="handle-indent"></td>
         <td colspan="${PROFILE_TOTAL_COLS - 1}" class="handle-cell">
-          ${channelLogo(h.channel)}
-          <span class="handle-value-view">${esc(h.value)}</span>
-          <input class="handle-value-edit" type="text" value="${esc(h.value)}" />
-          <span class="handle-status ${h.is_active ? 'is-connected' : 'is-inactive'}">
-            <span class="handle-status-dot"></span>${h.is_active ? 'Connected' : 'Inactive'}
-          </span>
-          <span class="handle-date muted">${fmtTs(h.registered_at)}</span>
-          <span class="handle-row-actions">
-            <button class="icon-btn handle-edit-btn" title="Edit handle">&#9998;</button>
-            <button class="icon-btn handle-save-btn" hidden title="Save">&#10003;</button>
-            <button class="icon-btn handle-cancel-btn" hidden title="Cancel">&times;</button>
-          </span>
-          <span class="handle-result result-msg"></span>
+          <div class="handle-cards">${handles.map((h) => handleCardHtml(h)).join('')}</div>
         </td>
       </tr>`
-        )
-        .join('')
     : `<tr class="handle-row handle-row-empty" data-parent="${esc(p.internal_id)}"${hiddenAttr}><td class="handle-indent"></td><td colspan="${PROFILE_TOTAL_COLS - 1}" class="muted handle-cell">No handles linked</td></tr>`;
 
-  return parentRow + handleRows;
+  return parentRow + handleRow;
+}
+
+function handleCardHtml(h) {
+  return `<div class="handle-card" data-handle-id="${h.id}">
+    <div class="handle-card-top">
+      ${channelLogo(h.channel)}
+      <span class="handle-row-actions">
+        <button class="icon-btn handle-edit-btn" title="Edit handle">&#9998;</button>
+        <button class="icon-btn handle-save-btn" hidden title="Save">&#10003;</button>
+        <button class="icon-btn handle-cancel-btn" hidden title="Cancel">&times;</button>
+      </span>
+    </div>
+    <span class="handle-value-view" title="${esc(h.value)}">${esc(h.value)}</span>
+    <input class="handle-value-edit" type="text" value="${esc(h.value)}" />
+    <span class="handle-status ${h.is_active ? 'is-connected' : 'is-inactive'}">
+      <span class="handle-status-dot"></span>${h.is_active ? 'Connected' : 'Inactive'}
+    </span>
+    <span class="handle-date muted">${fmtTs(h.registered_at)}</span>
+    <span class="handle-result result-msg"></span>
+  </div>`;
 }
 
 function setRowsExpanded(internalId, expand) {
@@ -165,9 +171,9 @@ function bindRowActions(tbodyEl) {
     if (toggleBtn) return setRowsExpanded(toggleBtn.dataset.id, !toggleBtn.classList.contains('expanded'));
     if (viewBtn) return openProfileModal(viewBtn.dataset.id, false);
     if (editBtn) return openProfileModal(editBtn.dataset.id, true);
-    if (handleEditBtn) return setHandleRowEditing(handleEditBtn.closest('tr'), true);
-    if (handleCancelBtn) return setHandleRowEditing(handleCancelBtn.closest('tr'), false);
-    if (handleSaveBtn) return saveHandleEdit(handleSaveBtn.closest('tr'));
+    if (handleEditBtn) return setHandleCardEditing(handleEditBtn.closest('.handle-card'), true);
+    if (handleCancelBtn) return setHandleCardEditing(handleCancelBtn.closest('.handle-card'), false);
+    if (handleSaveBtn) return saveHandleEdit(handleSaveBtn.closest('.handle-card'));
   });
 }
 
@@ -183,28 +189,28 @@ $('#profiles-toggle-all-btn').addEventListener('click', () => {
   $('#profiles-toggle-all-btn').textContent = allHandlesExpanded ? 'Collapse all' : 'Expand all';
 });
 
-function setHandleRowEditing(tr, editing) {
-  tr.classList.toggle('editing', editing);
-  tr.querySelector('.handle-edit-btn').hidden = editing;
-  tr.querySelector('.handle-save-btn').hidden = !editing;
-  tr.querySelector('.handle-cancel-btn').hidden = !editing;
-  const resultEl = tr.querySelector('.handle-result');
+function setHandleCardEditing(card, editing) {
+  card.classList.toggle('editing', editing);
+  card.querySelector('.handle-edit-btn').hidden = editing;
+  card.querySelector('.handle-save-btn').hidden = !editing;
+  card.querySelector('.handle-cancel-btn').hidden = !editing;
+  const resultEl = card.querySelector('.handle-result');
   if (!editing) {
     resultEl.textContent = '';
     resultEl.className = 'handle-result result-msg';
-    tr.querySelector('.handle-value-edit').value = tr.querySelector('.handle-value-view').textContent;
+    card.querySelector('.handle-value-edit').value = card.querySelector('.handle-value-view').textContent;
   }
 }
 
-async function saveHandleEdit(tr) {
-  const id = tr.dataset.handleId;
-  const input = tr.querySelector('.handle-value-edit');
-  const viewEl = tr.querySelector('.handle-value-view');
-  const resultEl = tr.querySelector('.handle-result');
+async function saveHandleEdit(card) {
+  const id = card.dataset.handleId;
+  const input = card.querySelector('.handle-value-edit');
+  const viewEl = card.querySelector('.handle-value-view');
+  const resultEl = card.querySelector('.handle-result');
   const newValue = input.value.trim();
 
   if (!newValue || newValue === viewEl.textContent) {
-    return setHandleRowEditing(tr, false);
+    return setHandleCardEditing(card, false);
   }
 
   const { status, json } = await api(`/handles/${encodeURIComponent(id)}`, {
@@ -218,7 +224,8 @@ async function saveHandleEdit(tr) {
     resultEl.className = 'handle-result result-msg ok';
     if (!json.dry_run) {
       viewEl.textContent = json.new_value;
-      setHandleRowEditing(tr, false);
+      viewEl.title = json.new_value;
+      setHandleCardEditing(card, false);
     }
   } else {
     resultEl.textContent = json.message || json.error || 'Failed to save';

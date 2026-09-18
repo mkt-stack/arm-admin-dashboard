@@ -242,13 +242,38 @@ main { padding: 1.5rem; }
 
 .handle-cell {
   background: #fafbfc;
-  padding-top: 0.5rem !important;
-  padding-bottom: 0.5rem !important;
+  padding-top: 0.6rem !important;
+  padding-bottom: 0.6rem !important;
+}
+
+/* Cards stack horizontally up to 6 per line, then wrap. `minmax` keeps each
+   card usable on a narrow window instead of squeezing 6 into too little
+   space — the row scrolls horizontally in that case rather than the cards
+   becoming illegible. */
+.handle-cards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 0.6rem;
+  overflow-x: auto;
+}
+
+.handle-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.handle-card-top {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-  font-size: 0.82rem;
+  justify-content: space-between;
+  gap: 0.4rem;
 }
 
 .handle-logo, .handle-logo-fallback {
@@ -280,16 +305,21 @@ main { padding: 1.5rem; }
   vertical-align: -3px;
 }
 
-.handle-value-view { font-weight: 600; }
-.handle-value-edit { display: none; padding: 0.25rem 0.5rem; font-size: 0.82rem; max-width: 220px; }
-.handle-row.editing .handle-value-view { display: none; }
-.handle-row.editing .handle-value-edit { display: inline-block; }
+.handle-value-view {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.handle-value-edit { display: none; padding: 0.25rem 0.4rem; font-size: 0.78rem; width: 100%; }
+.handle-card.editing .handle-value-view { display: none; }
+.handle-card.editing .handle-value-edit { display: block; }
 
 .handle-status {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
 }
 .handle-status-dot {
@@ -303,8 +333,9 @@ main { padding: 1.5rem; }
 .handle-status.is-inactive { color: var(--muted); }
 .handle-status.is-inactive .handle-status-dot { background: var(--muted); }
 
-.handle-date { font-size: 0.75rem; color: var(--muted); }
-.handle-row-actions { display: flex; gap: 0.25rem; margin-left: auto; }
+.handle-date { font-size: 0.7rem; color: var(--muted); }
+.handle-row-actions { display: flex; gap: 0.2rem; }
+.handle-card .icon-btn { width: 1.5rem; height: 1.5rem; font-size: 0.75rem; }
 .handle-result { min-height: 0; }
 
 /* ---------- Icon action buttons in table rows ---------- */
