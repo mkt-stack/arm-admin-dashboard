@@ -65,24 +65,37 @@ $all('.tab-btn').forEach((btn) => {
 // ---------- shared: profile row rendering (parent + nested handle rows) ----------
 
 const CHANNEL_META = {
-  tiktok: { label: 'TikTok', cls: 'ch-tiktok', abbr: 'TT' },
-  shopee: { label: 'Shopee', cls: 'ch-shopee', abbr: 'SH' },
-  lazada: { label: 'Lazada', cls: 'ch-lazada', abbr: 'LZ' },
-  affiliate_plus: { label: 'Affiliate+', cls: 'ch-affplus', abbr: 'A+' },
+  tiktok: { label: 'TikTok', logo: 'https://img.icons8.com/?size=100&id=118640&format=png&color=000000' },
+  shopee: { label: 'Shopee', logo: 'https://img.icons8.com/?size=100&id=mBkyWceUPlkM&format=png&color=000000' },
+  lazada: { label: 'Lazada', logo: 'https://img.icons8.com/?size=100&id=MIG1bB2e9EAh&format=png&color=000000' },
+  affiliate_plus: { label: 'Affiliate+', logo: 'https://cdn.shopify.com/s/files/1/0631/7755/6173/files/gq-red-logo-reg-long.png?v=1784103580' },
 };
 
-function channelBadge(channel) {
-  const meta = CHANNEL_META[channel] || { label: channel, cls: 'ch-other', abbr: String(channel || '?').slice(0, 2).toUpperCase() };
-  return `<span class="handle-badge ${meta.cls}" title="${esc(meta.label)}">${esc(meta.abbr)}</span>`;
+function channelLogo(channel, cls = 'handle-logo') {
+  const meta = CHANNEL_META[channel];
+  const label = meta ? meta.label : channel;
+  return meta
+    ? `<img class="${cls}" src="${esc(meta.logo)}" alt="${esc(label)}" title="${esc(label)}" loading="lazy" />`
+    : `<span class="${cls} handle-logo-fallback" title="${esc(label)}">${esc(String(channel || '?').slice(0, 2).toUpperCase())}</span>`;
 }
 
-// Profiles table has 11 columns (see index.html thead); handle rows span all
-// but a leading indent cell.
-const PROFILE_COLSPAN = 11;
+// Profiles table has 12 columns (a leading expand/collapse toggle + the 11
+// columns in index.html's thead); handle rows span all but a leading indent
+// cell that lines up under the toggle column.
+const PROFILE_TOTAL_COLS = 12;
+
+// Whether newly-rendered handle rows start expanded — kept in sync with the
+// "Expand all" toolbar button so paging in more rows (or a fresh search)
+// matches whatever state the admin last chose.
+let allHandlesExpanded = false;
 
 function profileRowHtml(p) {
   const handles = p.handles || [];
+  const expanded = allHandlesExpanded;
   const parentRow = `<tr class="profile-row" data-id="${esc(p.internal_id)}">
+    <td class="row-toggle-cell">
+      <button class="row-toggle-btn${expanded ? ' expanded' : ''}" type="button" data-id="${esc(p.internal_id)}" aria-expanded="${expanded}" title="${expanded ? 'Hide handles' : 'Show handles'}">&#9656;</button>
+    </td>
     <td>${esc(p.internal_id)}</td>
     <td>${esc(p.line_uid)}</td>
     <td>${esc(p.email)}</td>
@@ -99,17 +112,21 @@ function profileRowHtml(p) {
     </td>
   </tr>`;
 
+  const hiddenAttr = expanded ? '' : ' hidden';
+
   const handleRows = handles.length
     ? handles
         .map(
-          (h) => `<tr class="handle-row" data-handle-id="${h.id}">
+          (h) => `<tr class="handle-row" data-handle-id="${h.id}" data-parent="${esc(p.internal_id)}"${hiddenAttr}>
         <td class="handle-indent"></td>
-        <td colspan="${PROFILE_COLSPAN - 1}" class="handle-cell">
-          ${channelBadge(h.channel)}
+        <td colspan="${PROFILE_TOTAL_COLS - 1}" class="handle-cell">
+          ${channelLogo(h.channel)}
           <span class="handle-value-view">${esc(h.value)}</span>
           <input class="handle-value-edit" type="text" value="${esc(h.value)}" />
-          <span class="handle-date muted">connected ${fmtTs(h.registered_at)}</span>
-          ${h.is_active ? '' : '<span class="handle-inactive">(inactive)</span>'}
+          <span class="handle-status ${h.is_active ? 'is-connected' : 'is-inactive'}">
+            <span class="handle-status-dot"></span>${h.is_active ? 'Connected' : 'Inactive'}
+          </span>
+          <span class="handle-date muted">${fmtTs(h.registered_at)}</span>
           <span class="handle-row-actions">
             <button class="icon-btn handle-edit-btn" title="Edit handle">&#9998;</button>
             <button class="icon-btn handle-save-btn" hidden title="Save">&#10003;</button>
@@ -120,19 +137,32 @@ function profileRowHtml(p) {
       </tr>`
         )
         .join('')
-    : `<tr class="handle-row handle-row-empty"><td class="handle-indent"></td><td colspan="${PROFILE_COLSPAN - 1}" class="muted handle-cell">No handles linked</td></tr>`;
+    : `<tr class="handle-row handle-row-empty" data-parent="${esc(p.internal_id)}"${hiddenAttr}><td class="handle-indent"></td><td colspan="${PROFILE_TOTAL_COLS - 1}" class="muted handle-cell">No handles linked</td></tr>`;
 
   return parentRow + handleRows;
 }
 
+function setRowsExpanded(internalId, expand) {
+  const tbody = $('#profiles-tbody');
+  const btn = tbody.querySelector(`.row-toggle-btn[data-id="${CSS.escape(internalId)}"]`);
+  if (btn) {
+    btn.classList.toggle('expanded', expand);
+    btn.setAttribute('aria-expanded', String(expand));
+    btn.title = expand ? 'Hide handles' : 'Show handles';
+  }
+  tbody.querySelectorAll(`tr.handle-row[data-parent="${CSS.escape(internalId)}"]`).forEach((tr) => { tr.hidden = !expand; });
+}
+
 function bindRowActions(tbodyEl) {
   tbodyEl.addEventListener('click', (e) => {
+    const toggleBtn = e.target.closest('.row-toggle-btn');
     const viewBtn = e.target.closest('.view-btn');
     const editBtn = e.target.closest('.edit-btn');
     const handleEditBtn = e.target.closest('.handle-edit-btn');
     const handleSaveBtn = e.target.closest('.handle-save-btn');
     const handleCancelBtn = e.target.closest('.handle-cancel-btn');
 
+    if (toggleBtn) return setRowsExpanded(toggleBtn.dataset.id, !toggleBtn.classList.contains('expanded'));
     if (viewBtn) return openProfileModal(viewBtn.dataset.id, false);
     if (editBtn) return openProfileModal(editBtn.dataset.id, true);
     if (handleEditBtn) return setHandleRowEditing(handleEditBtn.closest('tr'), true);
@@ -140,6 +170,18 @@ function bindRowActions(tbodyEl) {
     if (handleSaveBtn) return saveHandleEdit(handleSaveBtn.closest('tr'));
   });
 }
+
+$('#profiles-toggle-all-btn').addEventListener('click', () => {
+  allHandlesExpanded = !allHandlesExpanded;
+  const tbody = $('#profiles-tbody');
+  tbody.querySelectorAll('.row-toggle-btn').forEach((btn) => {
+    btn.classList.toggle('expanded', allHandlesExpanded);
+    btn.setAttribute('aria-expanded', String(allHandlesExpanded));
+    btn.title = allHandlesExpanded ? 'Hide handles' : 'Show handles';
+  });
+  tbody.querySelectorAll('.handle-row').forEach((tr) => { tr.hidden = !allHandlesExpanded; });
+  $('#profiles-toggle-all-btn').textContent = allHandlesExpanded ? 'Collapse all' : 'Expand all';
+});
 
 function setHandleRowEditing(tr, editing) {
   tr.classList.toggle('editing', editing);
@@ -243,7 +285,7 @@ function renderProfileModal(detail) {
   form.dataset.original = JSON.stringify(original);
 
   $('#pm-handles').innerHTML = handles.length
-    ? handles.map((h) => `<li>${channelBadge(h.channel)} ${esc(h.value)} ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
+    ? handles.map((h) => `<li>${channelLogo(h.channel, 'handle-logo-sm')} <strong>${esc(h.value)}</strong> ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
     : '<li class="muted">none</li>';
 
   $('#pm-line-history').innerHTML = line_uid_history.length
