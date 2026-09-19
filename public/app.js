@@ -48,6 +48,16 @@ async function loadWhoami() {
   if (json.username) $('#whoami').textContent = `Signed in as ${json.username}`;
 }
 
+// Store handle for "open in Shopify admin" links — null until loaded (or if
+// SHOPIFY_STORE_DOMAIN isn't configured server-side), in which case the
+// Profiles-tab Shopify cell just shows the customer id as plain text.
+let shopifyStoreDomain = null;
+
+async function loadConfig() {
+  const { json } = await api('/config');
+  shopifyStoreDomain = json.shopify_store_domain || null;
+}
+
 $('#logout-btn').addEventListener('click', async () => {
   await fetch('/logout', { method: 'POST' });
   window.location.href = '/login';
@@ -79,6 +89,30 @@ function channelLogo(channel, cls = 'handle-logo') {
     : `<span class="${cls} handle-logo-fallback" title="${esc(label)}">${esc(String(channel || '?').slice(0, 2).toUpperCase())}</span>`;
 }
 
+// Inline SVG rather than hotlinking a logo CDN — the brandfetch.io URL
+// originally used here is hotlink-protected (redirects non-browser/headless
+// requests to an HTML guidelines page instead of the image, confirmed by
+// testing) and can't be trusted to render reliably for every admin.
+const SHOPIFY_BAG_SVG = `<svg viewBox="0 0 20 20" width="14" height="14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <rect x="4" y="8" width="12" height="9" rx="1.5" fill="#95BF47"/>
+  <path d="M7 8V6a3 3 0 0 0 6 0v2" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+</svg>`;
+
+// shopify_customer_id is stored as a GID ("gid://shopify/Customer/12345")
+// everywhere in D1 (confirmed against production — see PROJECT_CONTEXT.md's
+// Shopify-match migration notes) — the admin customer URL just wants the
+// trailing numeric id. Falls back to treating the whole string as the id if
+// it's ever stored bare instead of as a GID.
+function shopifyCustomerCell(p) {
+  if (!p.shopify_customer_id) return '—';
+  const numericId = String(p.shopify_customer_id).split('/').pop();
+  if (!shopifyStoreDomain || !numericId) return esc(p.shopify_customer_id);
+  const url = `https://${shopifyStoreDomain}/admin/customers/${encodeURIComponent(numericId)}`;
+  return `<a class="icon-btn shopify-link-btn" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Open ${esc(p.internal_id)} in Shopify admin">
+    ${SHOPIFY_BAG_SVG}
+  </a>`;
+}
+
 // Profiles table has 12 columns (a leading expand/collapse toggle + the 11
 // columns in index.html's thead); handle rows span all but a leading indent
 // cell that lines up under the toggle column.
@@ -104,8 +138,8 @@ function profileRowHtml(p) {
     <td>${esc(p.full_name) || '—'}</td>
     <td>${esc(p.gender) || '—'}</td>
     <td>${p.age ?? '—'}</td>
-    <td>${esc(p.shopify_customer_id) || '—'}</td>
     <td>${fmtTs(p.updated_at)}</td>
+    <td>${shopifyCustomerCell(p)}</td>
     <td class="row-actions">
       <button class="icon-btn view-btn" data-id="${esc(p.internal_id)}" title="View">&#128065;</button>
       <button class="icon-btn edit-btn" data-id="${esc(p.internal_id)}" title="Edit">&#9998;</button>
@@ -416,6 +450,17 @@ let statCharts = { cumulative: null, daily: null, gender: null, age: null, funne
 
 const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#64748b', '#db2777'];
 
+// Mirrors arm-worker-v2's AGE_BUCKETS (src/index.js) — only the numeric
+// bounds are needed here, to place the average-age line within a bucket.
+const AGE_BUCKETS = [
+  { min: 0, max: 17 },
+  { min: 18, max: 24 },
+  { min: 25, max: 34 },
+  { min: 35, max: 44 },
+  { min: 45, max: 54 },
+  { min: 55, max: Infinity },
+];
+
 async function loadStatsOverview() {
   const { json } = await api('/stats/overview');
   if (!json || json.total_affiliates === undefined) return;
@@ -474,11 +519,149 @@ function chartOptions() {
   };
 }
 
+// ---------- custom Chart.js plugins ----------
+// Small inline plugins instead of pulling in chartjs-plugin-datalabels /
+// -annotation — keeps the CDN surface to just Chart.js itself (see the
+// dashboard-not-reflecting-D1 fix: a bad CDN pin already broke every chart
+// on this page once).
+
+// Percentage callouts on each doughnut slice.
+const doughnutPercentLabelsPlugin = {
+  id: 'doughnutPercentLabels',
+  afterDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    const data = chart.data.datasets[0].data;
+    const total = data.reduce((a, b) => a + b, 0);
+    if (!total) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((arc, i) => {
+      const value = data[i];
+      const pct = (value / total) * 100;
+      if (!value || pct < 5) return; // skip slivers — label would overflow the slice
+      const angle = (arc.startAngle + arc.endAngle) / 2;
+      const radius = (arc.innerRadius + arc.outerRadius) / 2;
+      const x = arc.x + Math.cos(angle) * radius;
+      const y = arc.y + Math.sin(angle) * radius;
+      ctx.fillText(`${pct.toFixed(0)}%`, x, y);
+    });
+    ctx.restore();
+  },
+};
+
+// Dashed vertical line + "Avg N" callout at the average-age position,
+// interpolated within its bucket rather than snapped to a bucket edge.
+function averageAgeLinePlugin(averageAge, buckets) {
+  return {
+    id: 'averageAgeLine',
+    afterDraw(chart) {
+      if (averageAge === null || averageAge === undefined || !buckets.length) return;
+      const { ctx, chartArea, scales } = chart;
+      const xScale = scales.x;
+      const p0 = xScale.getPixelForTick(0);
+      const p1 = xScale.getPixelForTick(1);
+      if (p0 === undefined || p1 === undefined) return;
+      const bandWidth = p1 - p0;
+
+      let idx = buckets.findIndex((b) => averageAge >= b.min && averageAge <= b.max);
+      if (idx === -1) idx = averageAge < buckets[0].min ? 0 : buckets.length - 1;
+      const b = buckets[idx];
+      const bucketMax = b.max === Infinity ? b.min + 20 : b.max; // open-ended "55+" gets a nominal 20yr visual span
+      const span = bucketMax - b.min || 1;
+      const frac = Math.min(1, Math.max(0, (averageAge - b.min) / span));
+      const bucketCenter = xScale.getPixelForTick(idx);
+      const x = bucketCenter - bandWidth / 2 + frac * bandWidth;
+
+      ctx.save();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const label = `Avg ${averageAge.toFixed(1)}`;
+      ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const textWidth = ctx.measureText(label).width;
+      const padX = 5;
+      const boxW = textWidth + padX * 2;
+      const boxH = 16;
+      const boxX = Math.max(chartArea.left, Math.min(x - boxW / 2, chartArea.right - boxW));
+      const boxY = chartArea.top + 2;
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+      else ctx.rect(boxX, boxY, boxW, boxH);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, boxX + boxW / 2, boxY + boxH / 2 + 0.5);
+      ctx.restore();
+    },
+  };
+}
+
+// Pre-load channel logo images once so the axis-logo plugin can draw them
+// immediately (drawImage on an unloaded <img> is a silent no-op).
+const CHANNEL_LOGO_IMAGES = {};
+Object.entries(CHANNEL_META).forEach(([key, meta]) => {
+  const img = new Image();
+  img.src = meta.logo;
+  CHANNEL_LOGO_IMAGES[key] = img;
+});
+
+// Draws each channel's logo below its bar in place of a text tick label
+// (the axis's own ticks are hidden — see renderChannelConnectionsChart).
+function channelAxisLogosPlugin(channels) {
+  return {
+    id: 'channelAxisLogos',
+    afterDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const xScale = scales.x;
+      const size = 22;
+      channels.forEach((ch, i) => {
+        const img = CHANNEL_LOGO_IMAGES[ch];
+        if (!img || !img.complete || !img.naturalWidth) return;
+        const cx = xScale.getPixelForTick(i);
+        ctx.drawImage(img, cx - size / 2, chartArea.bottom + 8, size, size);
+      });
+    },
+  };
+}
+
+// Percentage callout above each bar.
+const barPercentLabelsPlugin = {
+  id: 'barPercentLabels',
+  afterDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    const data = chart.data.datasets[0].data;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#1c2126';
+    ctx.textAlign = 'center';
+    meta.data.forEach((bar, i) => {
+      ctx.fillText(`${data[i].toFixed(0)}%`, bar.x, bar.y - 6);
+    });
+    ctx.restore();
+  },
+};
+
 async function loadTimeseries() {
   const { json } = await api('/stats/timeseries');
   if (!json) return;
 
-  const cumulative = json.cumulative || [];
+  // Both charts share the same last-90-days window — `cumulative` covers
+  // full history so it's sliced to match `daily_new_90d`'s range exactly
+  // (both are derived from the same dense per-day series server-side).
+  const cumulative = (json.cumulative || []).slice(-90);
   const daily = json.daily_new_90d || [];
 
   if (statCharts.cumulative) statCharts.cumulative.destroy();
@@ -508,22 +691,27 @@ async function loadDemographics() {
 
   renderGenderChart(json.gender || []);
   renderAgeChart(json.age || { average_age: null, sample_size: 0, buckets: [] });
-  renderFunnelChart(json.channel_funnel || { total: 0, has_tiktok: 0, has_shopee: 0, has_both: 0 });
+  renderChannelConnectionsChart(json.channel_connections || { total: 0, tiktok: 0, shopee: 0, lazada: 0, affiliate_plus: 0 });
 }
 
 function renderGenderChart(gender) {
+  const total = gender.reduce((a, g) => a + g.count, 0);
+
   if (statCharts.gender) statCharts.gender.destroy();
   statCharts.gender = new Chart($('#chart-gender'), {
     type: 'doughnut',
     data: {
-      labels: gender.map((g) => `${g.label} (${g.count})`),
+      labels: gender.map((g) => `${g.label} — ${fmtNum(g.count)} (${total > 0 ? ((g.count / total) * 100).toFixed(0) : 0}%)`),
       datasets: [{ data: gender.map((g) => g.count), backgroundColor: gender.map((_, i) => PALETTE[i % PALETTE.length]), borderWidth: 1, borderColor: '#fff' }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+      // Vertical, side-stacked legend — more compact than a wrapping bottom
+      // legend once there's more than 2-3 gender labels.
+      plugins: { legend: { position: 'right', align: 'center', labels: { boxWidth: 10, font: { size: 11 }, padding: 10 } } },
     },
+    plugins: [doughnutPercentLabelsPlugin],
   });
 }
 
@@ -539,43 +727,41 @@ function renderAgeChart(age) {
       datasets: [{ label: 'Affiliates', data: buckets.map((b) => b.count), backgroundColor: '#7c3aed', borderRadius: 4, maxBarThickness: 40 }],
     },
     options: chartOptions(),
+    plugins: [averageAgeLinePlugin(age.average_age, AGE_BUCKETS)],
   });
 }
 
-function renderFunnelChart(funnel) {
-  const stages = [
-    { label: 'Total Affiliates', value: funnel.total },
-    { label: 'Has TikTok', value: funnel.has_tiktok },
-    { label: 'Has Shopee', value: funnel.has_shopee },
-    { label: 'Has Both', value: funnel.has_both },
-  ];
+const CHANNEL_ORDER = ['tiktok', 'shopee', 'lazada', 'affiliate_plus'];
+
+function renderChannelConnectionsChart(cc) {
+  const total = cc.total || 0;
+  const pct = CHANNEL_ORDER.map((ch) => (total > 0 ? ((cc[ch] || 0) / total) * 100 : 0));
 
   if (statCharts.funnel) statCharts.funnel.destroy();
   statCharts.funnel = new Chart($('#chart-funnel'), {
     type: 'bar',
     data: {
-      labels: stages.map((s) => s.label),
-      datasets: [{ data: stages.map((s) => s.value), backgroundColor: '#2563eb', borderRadius: 4, maxBarThickness: 28 }],
+      labels: CHANNEL_ORDER.map((ch) => CHANNEL_META[ch].label),
+      datasets: [{ data: pct, backgroundColor: '#2563eb', borderRadius: 4, maxBarThickness: 48 }],
     },
     options: {
-      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      layout: { padding: { top: 22, bottom: 34 } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y.toFixed(1)}%` } } },
       scales: {
-        x: { beginAtZero: true, grid: { color: '#eef0f3' }, ticks: { precision: 0 } },
-        y: { grid: { display: false } },
+        x: { ticks: { display: false }, grid: { display: false } }, // logos drawn by channelAxisLogosPlugin instead
+        y: { beginAtZero: true, max: 100, grid: { color: '#eef0f3' }, ticks: { callback: (v) => `${v}%` } },
       },
     },
+    plugins: [channelAxisLogosPlugin(CHANNEL_ORDER), barPercentLabelsPlugin],
   });
 
-  const total = funnel.total || 0;
-  $('#funnel-legend').innerHTML = stages
-    .map((s) => {
-      const pct = total > 0 ? ((s.value / total) * 100).toFixed(1) : '0.0';
-      return `<li><span>${esc(s.label)}</span><span class="funnel-count">${fmtNum(s.value)} (${pct}%)</span></li>`;
-    })
-    .join('');
+  $('#funnel-legend').innerHTML = CHANNEL_ORDER.map((ch) => {
+    const count = cc[ch] || 0;
+    const p = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+    return `<li><span>${channelLogo(ch, 'handle-logo-sm')} ${esc(CHANNEL_META[ch].label)}</span><span class="funnel-count">${fmtNum(count)} (${p}%)</span></li>`;
+  }).join('');
 }
 
 // ---------- Profiles tab ----------
@@ -672,6 +858,9 @@ loadWhoami();
 loadStatsOverview();
 loadTimeseries();
 loadDemographics();
-searchProfiles(true);
+// Profiles rendering needs shopifyStoreDomain to build the Shopify-link
+// button, so load config first — otherwise the first render would show
+// plain text instead of the button until the next search/refresh.
+loadConfig().then(() => searchProfiles(true));
 loadErrors();
 loadSyncTasks();

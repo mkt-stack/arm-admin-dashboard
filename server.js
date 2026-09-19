@@ -31,6 +31,9 @@ const {
   SESSION_SECRET,
   ARM_WORKER_BASE_URL,
   ARM_ADMIN_TOKEN,
+  // Optional — not a secret, just the store handle used to build "open in
+  // Shopify admin" links on the Profiles tab. Unset just hides that button.
+  SHOPIFY_STORE_DOMAIN,
   PORT = '3000',
   NODE_ENV,
 } = process.env;
@@ -191,6 +194,10 @@ async function callWorker(pathAndQuery, { method = 'GET', body } = {}) {
 
 const api = express.Router();
 api.use(requireAuthApi);
+
+api.get('/config', (req, res) => {
+  res.json({ shopify_store_domain: SHOPIFY_STORE_DOMAIN || null });
+});
 
 api.get('/profiles', async (req, res) => {
   const qs = new URLSearchParams(req.query).toString();
