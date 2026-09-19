@@ -89,14 +89,10 @@ function channelLogo(channel, cls = 'handle-logo') {
     : `<span class="${cls} handle-logo-fallback" title="${esc(label)}">${esc(String(channel || '?').slice(0, 2).toUpperCase())}</span>`;
 }
 
-// Inline SVG rather than hotlinking a logo CDN — the brandfetch.io URL
-// originally used here is hotlink-protected (redirects non-browser/headless
-// requests to an HTML guidelines page instead of the image, confirmed by
-// testing) and can't be trusted to render reliably for every admin.
-const SHOPIFY_BAG_SVG = `<svg viewBox="0 0 20 20" width="14" height="14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <rect x="4" y="8" width="12" height="9" rx="1.5" fill="#95BF47"/>
-  <path d="M7 8V6a3 3 0 0 0 6 0v2" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
-</svg>`;
+// Hosted on cdn.shopify.com (a file uploaded to the store itself, not a
+// third-party logo service) — unlike the brandfetch.io URL tried earlier,
+// this one isn't hotlink-protected.
+const SHOPIFY_LOGO_URL = 'https://cdn.shopify.com/s/files/1/0631/7755/6173/files/shopify_glyph.png?v=1789830120';
 
 // shopify_customer_id is stored as a GID ("gid://shopify/Customer/12345")
 // everywhere in D1 (confirmed against production — see PROJECT_CONTEXT.md's
@@ -109,7 +105,7 @@ function shopifyCustomerCell(p) {
   if (!shopifyStoreDomain || !numericId) return esc(p.shopify_customer_id);
   const url = `https://${shopifyStoreDomain}/admin/customers/${encodeURIComponent(numericId)}`;
   return `<a class="icon-btn shopify-link-btn" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Open ${esc(p.internal_id)} in Shopify admin">
-    ${SHOPIFY_BAG_SVG}
+    <img src="${SHOPIFY_LOGO_URL}" alt="Shopify" class="shopify-logo-icon" />
   </a>`;
 }
 

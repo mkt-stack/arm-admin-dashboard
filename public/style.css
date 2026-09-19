@@ -310,7 +310,7 @@ main { padding: 1.5rem; }
   border-color: #1a1a1a;
 }
 .shopify-link-btn:hover { background: #000; }
-.shopify-link-btn svg { display: block; }
+.shopify-logo-icon { width: 20px; height: 20px; object-fit: contain; display: block; }
 
 .handle-value-view {
   font-weight: 600;
