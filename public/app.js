@@ -769,6 +769,11 @@ async function searchProfiles(reset = true) {
   const q = $('#profile-search').value.trim();
   const params = new URLSearchParams();
   if (q) params.set('q', q);
+  if (selectedChannelFilters.size) params.set('channels', Array.from(selectedChannelFilters).join(','));
+  const dateFrom = $('#date-from-input').value;
+  const dateTo = $('#date-to-input').value;
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
   if (profilesCursor) params.set('cursor', profilesCursor);
   const { json } = await api(`/profiles?${params.toString()}`);
   const tbody = $('#profiles-tbody');
@@ -782,6 +787,63 @@ $('#profile-search-btn').addEventListener('click', () => searchProfiles(true));
 $('#profile-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchProfiles(true); });
 $('#profiles-load-more').addEventListener('click', () => searchProfiles(false));
 bindRowActions($('#profiles-tbody'));
+
+// ---------- Profiles tab: channel filter (multiselect, AND across channels) ----------
+
+const selectedChannelFilters = new Set();
+
+function renderChannelFilterPanel() {
+  $('#channel-filter-panel').innerHTML = CHANNEL_ORDER.map((ch) => {
+    const meta = CHANNEL_META[ch];
+    return `<label class="filter-option">
+      <input type="checkbox" value="${ch}" ${selectedChannelFilters.has(ch) ? 'checked' : ''} />
+      ${channelLogo(ch, 'handle-logo-sm')} ${esc(meta.label)}
+    </label>`;
+  }).join('');
+}
+
+function updateChannelFilterButton() {
+  const countEl = $('#channel-filter-count');
+  countEl.textContent = String(selectedChannelFilters.size);
+  countEl.hidden = selectedChannelFilters.size === 0;
+}
+
+renderChannelFilterPanel();
+updateChannelFilterButton();
+
+$('#channel-filter-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#channel-filter-panel').hidden = !$('#channel-filter-panel').hidden;
+});
+
+$('#channel-filter-panel').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[type="checkbox"]');
+  if (!cb) return;
+  if (cb.checked) selectedChannelFilters.add(cb.value);
+  else selectedChannelFilters.delete(cb.value);
+  updateChannelFilterButton();
+  searchProfiles(true);
+});
+
+document.addEventListener('click', (e) => {
+  const wrap = $('#channel-filter-wrap');
+  if (!wrap.contains(e.target)) $('#channel-filter-panel').hidden = true;
+});
+
+// ---------- Profiles tab: registration date filter ----------
+
+function updateDateFilterClearVisibility() {
+  $('#date-filter-clear-btn').hidden = !($('#date-from-input').value || $('#date-to-input').value);
+}
+
+$('#date-from-input').addEventListener('change', () => { updateDateFilterClearVisibility(); searchProfiles(true); });
+$('#date-to-input').addEventListener('change', () => { updateDateFilterClearVisibility(); searchProfiles(true); });
+$('#date-filter-clear-btn').addEventListener('click', () => {
+  $('#date-from-input').value = '';
+  $('#date-to-input').value = '';
+  updateDateFilterClearVisibility();
+  searchProfiles(true);
+});
 
 // ---------- Errors tab ----------
 

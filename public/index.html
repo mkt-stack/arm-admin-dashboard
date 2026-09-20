@@ -93,6 +93,22 @@
       <div class="panel-toolbar">
         <input type="search" id="profile-search" placeholder="Search internal_id / email / phone / line_uid / handle" />
         <button id="profile-search-btn">Search</button>
+
+        <div class="filter-dropdown-wrap" id="channel-filter-wrap">
+          <button type="button" id="channel-filter-btn" class="secondary-btn filter-btn">
+            Channel <span class="filter-count" id="channel-filter-count" hidden></span>
+            <span class="filter-caret">&#9662;</span>
+          </button>
+          <div class="filter-dropdown-panel" id="channel-filter-panel" hidden></div>
+        </div>
+
+        <div class="date-filter">
+          <label>Registered <input type="date" id="date-from-input" title="From" /></label>
+          <span class="date-filter-sep">–</span>
+          <input type="date" id="date-to-input" title="To" />
+          <button type="button" id="date-filter-clear-btn" class="link-btn" hidden>Clear</button>
+        </div>
+
         <button id="profiles-toggle-all-btn" class="secondary-btn" type="button">Expand all</button>
       </div>
       <table class="data-table profiles-table">
