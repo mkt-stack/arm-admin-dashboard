@@ -516,3 +516,18 @@ dd { margin: 0; }
 
 h2 { margin-top: 0; }
 h3 { font-size: 0.9rem; color: var(--muted); margin: 1.2rem 0 0.4rem; }
+
+/* ---------- Config tab ---------- */
+
+.config-hint { font-size: 0.82rem; color: var(--muted); max-width: 640px; margin: 0.2rem 0 0.8rem; }
+.mapping-table td { font-size: 0.8rem; vertical-align: top; }
+.mapping-test-output {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.8rem;
+  font-size: 0.78rem;
+  max-width: 700px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}

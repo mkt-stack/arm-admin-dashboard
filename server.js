@@ -256,7 +256,7 @@ api.get('/sync-tasks', async (req, res) => {
 api.post('/sync-tasks/:id/retry', async (req, res) => {
   const { status, json } = await callWorker(`/admin/sync-tasks/${encodeURIComponent(req.params.id)}/retry`, {
     method: 'POST',
-    body: { dry_run: (req.body || {}).dry_run === true },
+    body: { admin_id: req.adminUsername, dry_run: (req.body || {}).dry_run === true },
   });
   res.status(status).json(json);
 });
@@ -266,6 +266,89 @@ api.post('/handles/:id', async (req, res) => {
   const { status, json } = await callWorker(`/admin/handles/${encodeURIComponent(req.params.id)}`, {
     method: 'POST',
     body: { new_value, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.delete('/handles/:id', async (req, res) => {
+  const { dry_run } = req.body || {};
+  const { status, json } = await callWorker(`/admin/handles/${encodeURIComponent(req.params.id)}`, {
+    method: 'DELETE',
+    body: { admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+// Admin-initiated account creation — same worker route n8n uses
+// (/create-account), just with admin_id set so kol_audit_log attributes it
+// correctly and the Shopify-sync notify decision follows the "is this a
+// brand new profile" rule in index.js, not a blanket yes/no.
+api.post('/create-account', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker('/create-account', {
+    method: 'POST',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+// Admin-initiated "add handle to an existing profile" — same worker route
+// as the self-service flow (/add-handle), keyed by line_uid (the dashboard
+// already has the profile loaded, so it passes it through rather than
+// exposing a separate internal_id-keyed route on the worker).
+api.post('/add-handle', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker('/add-handle', {
+    method: 'POST',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.get('/settings', async (req, res) => {
+  const { status, json } = await callWorker('/admin/settings');
+  res.status(status).json(json);
+});
+
+api.post('/settings', async (req, res) => {
+  const { settings, dry_run } = req.body || {};
+  const { status, json } = await callWorker('/admin/settings', {
+    method: 'POST',
+    body: { settings, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.get('/shopify-mapping', async (req, res) => {
+  const { status, json } = await callWorker('/admin/shopify-mapping');
+  res.status(status).json(json);
+});
+
+api.post('/shopify-mapping', async (req, res) => {
+  const { status, json } = await callWorker('/admin/shopify-mapping', {
+    method: 'POST',
+    body: { ...(req.body || {}), admin_id: req.adminUsername },
+  });
+  res.status(status).json(json);
+});
+
+api.put('/shopify-mapping/:id', async (req, res) => {
+  const { status, json } = await callWorker(`/admin/shopify-mapping/${encodeURIComponent(req.params.id)}`, {
+    method: 'PUT',
+    body: { ...(req.body || {}), admin_id: req.adminUsername },
+  });
+  res.status(status).json(json);
+});
+
+api.delete('/shopify-mapping/:id', async (req, res) => {
+  const { status, json } = await callWorker(`/admin/shopify-mapping/${encodeURIComponent(req.params.id)}`, { method: 'DELETE' });
+  res.status(status).json(json);
+});
+
+api.post('/shopify-mapping/test', async (req, res) => {
+  const { status, json } = await callWorker('/admin/shopify-mapping/test', {
+    method: 'POST',
+    body: req.body || {},
   });
   res.status(status).json(json);
 });

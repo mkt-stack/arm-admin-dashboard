@@ -69,6 +69,7 @@ $all('.tab-btn').forEach((btn) => {
     $all('.tab-panel').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
+    if (btn.dataset.tab === 'config') loadConfigTab();
   });
 });
 
@@ -322,8 +323,12 @@ function renderProfileModal(detail) {
   form.dataset.original = JSON.stringify(original);
 
   $('#pm-handles').innerHTML = handles.length
-    ? handles.map((h) => `<li>${channelLogo(h.channel, 'handle-logo-sm')} <strong>${esc(h.value)}</strong> ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}</li>`).join('')
+    ? handles.map((h) => `<li>${channelLogo(h.channel, 'handle-logo-sm')} <strong>${esc(h.value)}</strong> ${h.is_active ? '' : '(inactive)'} — registered ${fmtTs(h.registered_at)}
+        ${h.is_active ? `<button type="button" class="link-btn edit-only remove-handle-btn" data-id="${h.id}" hidden>remove</button>` : ''}</li>`).join('')
     : '<li class="muted">none</li>';
+
+  $('#pm-add-handle-form').dataset.lineUid = profile.line_uid;
+  $('#pm-add-handle-result').textContent = '';
 
   $('#pm-line-history').innerHTML = line_uid_history.length
     ? line_uid_history.map((h) => `<li>${esc(h.old_line_uid)} → changed by ${esc(h.changed_by)} at ${fmtTs(h.changed_at)}</li>`).join('')
@@ -351,8 +356,10 @@ function setModalEditing(editing) {
   $('#pm-edit-btn').hidden = editing;
   $('#pm-save-btn').hidden = !editing;
   $('#pm-cancel-btn').hidden = !editing;
-  $('#pm-relink-section').hidden = !editing;
-  $('#pm-notify-section').hidden = !editing;
+  // Covers the fixed relink/notify/add-handle sections AND the
+  // per-handle "remove" buttons, which are re-rendered on every
+  // renderProfileModal() call and so can't be wired up by id up front.
+  $all('#profile-modal .edit-only').forEach((el) => { el.hidden = !editing; });
 }
 
 $('#pm-edit-btn').addEventListener('click', () => setModalEditing(true));
@@ -399,7 +406,14 @@ $('#pm-save-btn').addEventListener('click', async () => {
 
   const allOk = results.every((r) => r.status === 200);
   const dryTag = isDryRun() ? ' [DRY RUN — nothing written]' : '';
-  const summary = results.map((r) => `${r.field}: ${r.status === 200 ? 'OK' : r.json.message || r.json.error || 'failed'}`).join(' | ');
+  const summary = results
+    .map((r) => {
+      if (r.status !== 200) return `${r.field}: ${r.json.message || r.json.error || 'failed'}`;
+      const sync = r.json.shopify_sync;
+      const syncTag = sync ? ` (Shopify: ${sync.status}${sync.status === 'failed' ? ` — ${sync.error || 'unknown error'}` : ''})` : '';
+      return `${r.field}: OK${syncTag}`;
+    })
+    .join(' | ');
 
   if (allOk && !isDryRun()) {
     const detail = await fetchProfileDetail(internal_id);
@@ -431,6 +445,39 @@ $('#pm-notify-btn').addEventListener('click', async () => {
   const internal_id = $('#pm-notify-btn').dataset.internalId;
   const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, dry_run: isDryRun() } });
   resultLine($('#pm-notify-result'), status, json);
+});
+
+$('#pm-add-handle-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const lineUid = form.dataset.lineUid;
+  const { status, json } = await api('/add-handle', {
+    method: 'POST',
+    body: { line_uid: lineUid, handle_type: form.channel.value, handle_value: form.value.value, dry_run: isDryRun() },
+  });
+  if (status === 200 && json.valid && !isDryRun()) {
+    form.reset();
+    const internalId = $('#pm-internal-id').textContent;
+    const detail = await fetchProfileDetail(internalId);
+    if (detail) { renderProfileModal(detail); setModalEditing(true); } // clears #pm-add-handle-result — set the message after
+    refreshTables();
+  }
+  resultLine($('#pm-add-handle-result'), status, json);
+});
+
+$('#pm-handles').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.remove-handle-btn');
+  if (!btn) return;
+  if (!isDryRun() && !confirm('Remove this handle? This deactivates it and clears it from Shopify on the next sync.')) return;
+  const { status, json } = await api(`/handles/${btn.dataset.id}`, { method: 'DELETE', body: { dry_run: isDryRun() } });
+  if (status === 200 && !isDryRun()) {
+    const internalId = $('#pm-internal-id').textContent;
+    const detail = await fetchProfileDetail(internalId);
+    if (detail) { renderProfileModal(detail); setModalEditing(true); }
+    refreshTables();
+  } else if (status !== 200) {
+    alert(json.message || 'Failed to remove handle');
+  }
 });
 
 function refreshTables() {
@@ -898,6 +945,164 @@ async function loadSyncTasks() {
       <td>${fmtTs(t.updated_at)}</td>
       <td>${t.status !== 'success' ? `<button class="retry-task" data-id="${t.id}">Retry</button>` : ''}</td>
     </tr>`).join('') || '<tr><td colspan="7" class="muted">No sync tasks</td></tr>';
+}
+
+// ---------- Add-profile modal ----------
+
+$('#add-profile-btn').addEventListener('click', () => {
+  $('#add-profile-form').reset();
+  $('#add-profile-result').textContent = '';
+  $('#add-profile-modal').hidden = false;
+});
+$('#add-profile-modal').addEventListener('click', (e) => { if (e.target === $('#add-profile-modal')) closeModal($('#add-profile-modal')); });
+$('#add-profile-modal-close').addEventListener('click', () => closeModal($('#add-profile-modal')));
+
+$('#add-profile-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fields = {};
+  for (const el of form.elements) {
+    if (el.name && el.value.trim()) fields[el.name] = el.value.trim();
+  }
+  const { status, json } = await api('/create-account', { method: 'POST', body: { ...fields, dry_run: isDryRun() } });
+  const mandatoryOk = json.line_uid && json.line_uid.valid && json.email && json.email.valid && json.phone && json.phone.valid;
+  if (status === 200 && mandatoryOk && !isDryRun()) {
+    form.reset();
+    closeModal($('#add-profile-modal'));
+    refreshTables();
+    return;
+  }
+  resultLine($('#add-profile-result'), mandatoryOk ? status : 422, json);
+});
+
+// ---------- Config tab ----------
+
+async function loadNotifyConfig() {
+  const { json } = await api('/settings');
+  $('#notify-webhook-url').value = (json.settings && json.settings.notify_webhook_url) || '';
+}
+
+$('#notify-config-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const { status, json } = await api('/settings', {
+    method: 'POST',
+    body: { settings: { notify_webhook_url: $('#notify-webhook-url').value.trim() }, dry_run: isDryRun() },
+  });
+  resultLine($('#notify-config-result'), status, json);
+});
+
+function mappingSourceSummary(row) {
+  switch (row.source_kind) {
+    case 'column': return `column: ${row.source_column}${row.source_transform ? ` (${row.source_transform})` : ''}`;
+    case 'channel_lookup': return `handle: ${row.source_channel}`;
+    case 'static': return `static: ${row.source_static}`;
+    case 'template': return `template: ${row.source_template}`;
+    case 'system': return `system: ${row.source_system}`;
+    default: return row.source_kind;
+  }
+}
+
+let mappingRowsCache = [];
+
+async function loadMapping() {
+  const { json } = await api('/shopify-mapping');
+  mappingRowsCache = json.mapping || [];
+  $('#mapping-tbody').innerHTML = mappingRowsCache.length
+    ? mappingRowsCache
+        .map(
+          (r) => `<tr>
+            <td>${esc(r.target_kind)}: ${esc(r.target_path)}${r.metafield_namespace ? ` <span class="muted">(${esc(r.metafield_namespace)}, ${esc(r.metafield_type)})</span>` : ''}</td>
+            <td>${esc(mappingSourceSummary(r))}${r.empty_value ? ` <span class="muted">(empty → ${esc(r.empty_value)})</span>` : ''}</td>
+            <td>${esc(r.apply_on)}</td>
+            <td>${r.enabled ? 'yes' : 'no'}</td>
+            <td><button type="button" class="link-btn mapping-edit-btn" data-id="${r.id}">edit</button>
+                <button type="button" class="link-btn mapping-delete-btn" data-id="${r.id}">delete</button></td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="5" class="muted">No mapping rows</td></tr>';
+}
+
+function openMappingModal(row) {
+  const form = $('#mapping-form');
+  form.reset();
+  $('#mapping-modal-title').textContent = row ? `Edit mapping row #${row.id}` : 'Add mapping row';
+  form.elements.id.value = row ? row.id : '';
+  if (row) {
+    for (const key of ['target_kind', 'target_path', 'metafield_namespace', 'metafield_type', 'source_kind', 'source_column', 'source_channel', 'source_transform', 'source_template', 'source_static', 'source_system', 'empty_value', 'sort_order']) {
+      if (form.elements[key]) form.elements[key].value = row[key] ?? '';
+    }
+    const applyOn = (row.apply_on || '').split(',').map((s) => s.trim());
+    form.elements.apply_on_create.checked = applyOn.includes('create');
+    form.elements.apply_on_update.checked = applyOn.includes('update');
+    form.elements.enabled.checked = !!row.enabled;
+  }
+  $('#mapping-form-result').textContent = '';
+  $('#mapping-modal').hidden = false;
+}
+
+$('#mapping-add-btn').addEventListener('click', () => openMappingModal(null));
+$('#mapping-modal').addEventListener('click', (e) => { if (e.target === $('#mapping-modal')) closeModal($('#mapping-modal')); });
+$('#mapping-modal-close').addEventListener('click', () => closeModal($('#mapping-modal')));
+
+$('#mapping-tbody').addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('.mapping-edit-btn');
+  if (editBtn) {
+    const row = mappingRowsCache.find((r) => String(r.id) === editBtn.dataset.id);
+    if (row) openMappingModal(row);
+    return;
+  }
+  const delBtn = e.target.closest('.mapping-delete-btn');
+  if (delBtn) {
+    if (!confirm('Delete this mapping row? It stops being written on the next sync.')) return;
+    const { status, json } = await api(`/shopify-mapping/${delBtn.dataset.id}`, { method: 'DELETE' });
+    if (status === 200) loadMapping();
+    else alert(json.message || 'Failed to delete');
+  }
+});
+
+$('#mapping-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const id = form.elements.id.value;
+  const applyOn = [form.elements.apply_on_create.checked && 'create', form.elements.apply_on_update.checked && 'update'].filter(Boolean).join(',');
+  const body = {
+    target_kind: form.target_kind.value,
+    target_path: form.target_path.value.trim(),
+    metafield_namespace: form.metafield_namespace.value.trim() || null,
+    metafield_type: form.metafield_type.value.trim() || null,
+    source_kind: form.source_kind.value,
+    source_column: form.source_column.value.trim() || null,
+    source_channel: form.source_channel.value.trim() || null,
+    source_transform: form.source_transform.value.trim() || null,
+    source_template: form.source_template.value.trim() || null,
+    source_static: form.source_static.value.trim() || null,
+    source_system: form.source_system.value || null,
+    empty_value: form.empty_value.value.trim() || null,
+    apply_on: applyOn,
+    enabled: form.enabled.checked,
+    sort_order: Number(form.sort_order.value) || 0,
+    dry_run: isDryRun(),
+  };
+  const { status, json } = id ? await api(`/shopify-mapping/${id}`, { method: 'PUT', body }) : await api('/shopify-mapping', { method: 'POST', body });
+  if (status === 200 && !isDryRun()) {
+    closeModal($('#mapping-modal'));
+    loadMapping();
+    return;
+  }
+  resultLine($('#mapping-form-result'), status, json);
+});
+
+$('#mapping-test-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const internal_id = $('#mapping-test-internal-id').value.trim();
+  const operation = $('#mapping-test-operation').value;
+  const { status, json } = await api('/shopify-mapping/test', { method: 'POST', body: { internal_id, operation } });
+  $('#mapping-test-result').textContent = status === 200 ? JSON.stringify(json, null, 2) : `Error ${status}: ${json.message || json.error}`;
+});
+
+async function loadConfigTab() {
+  await Promise.all([loadNotifyConfig(), loadMapping()]);
 }
 
 $('#sync-tasks-load-btn').addEventListener('click', loadSyncTasks);

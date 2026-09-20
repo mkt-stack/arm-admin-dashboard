@@ -25,6 +25,7 @@
     <button class="tab-btn" data-tab="profiles">Profiles</button>
     <button class="tab-btn" data-tab="errors">Errors</button>
     <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
+    <button class="tab-btn" data-tab="config">Config</button>
   </nav>
 
   <main>
@@ -91,6 +92,7 @@
 
     <section id="tab-profiles" class="tab-panel">
       <div class="panel-toolbar">
+        <button id="add-profile-btn" type="button">+ Add profile</button>
         <input type="search" id="profile-search" placeholder="Search internal_id / email / phone / line_uid / handle" />
         <button id="profile-search-btn">Search</button>
 
@@ -158,7 +160,120 @@
         <tbody id="sync-tasks-tbody"></tbody>
       </table>
     </section>
+
+    <section id="tab-config" class="tab-panel">
+      <h3>Customer notification</h3>
+      <p class="config-hint">Endpoint fired when a profile is successfully created/updated in Shopify — replaces a customer-facing "you're all set" message. Also fired on a successful manual sync-task retry.</p>
+      <form id="notify-config-form" class="inline-form">
+        <input type="url" id="notify-webhook-url" placeholder="https://...  (n8n webhook URL)" style="min-width: 420px" />
+        <button type="submit">Save</button>
+      </form>
+      <p id="notify-config-result" class="result-msg"></p>
+
+      <h3 style="margin-top: 2rem">Shopify field mapping</h3>
+      <p class="config-hint">Controls which D1 column/handle/static value gets written to which Shopify customer field or metafield on every sync. Add a row here instead of redeploying the worker.</p>
+      <table class="data-table mapping-table">
+        <thead>
+          <tr><th>Target</th><th>Source</th><th>Apply on</th><th>Enabled</th><th></th></tr>
+        </thead>
+        <tbody id="mapping-tbody"></tbody>
+      </table>
+      <button id="mapping-add-btn" type="button" class="secondary-btn">+ Add mapping row</button>
+
+      <h3 style="margin-top: 2rem">Test mapping</h3>
+      <form id="mapping-test-form" class="inline-form">
+        <input type="text" id="mapping-test-internal-id" placeholder="Internal ID, e.g. KOL000001" />
+        <select id="mapping-test-operation">
+          <option value="create">create</option>
+          <option value="update">update</option>
+        </select>
+        <button type="submit">Preview payload</button>
+      </form>
+      <pre id="mapping-test-result" class="mapping-test-output"></pre>
+    </section>
   </main>
+
+  <!-- Add-profile modal (admin-initiated /create-account) -->
+  <div id="add-profile-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="add-profile-modal-close" aria-label="Close">&times;</button>
+      <h2>Add profile</h2>
+      <form id="add-profile-form">
+        <dl class="profile-field-list">
+          <dt>LINE UID *</dt><dd><input type="text" name="line_uid" required /></dd>
+          <dt>Email *</dt><dd><input type="email" name="email" required /></dd>
+          <dt>Phone *</dt><dd><input type="text" name="phone" required placeholder="0812345678" /></dd>
+          <dt>Nickname</dt><dd><input type="text" name="nick_name" /></dd>
+          <dt>Full name</dt><dd><input type="text" name="full_name" /></dd>
+          <dt>Gender</dt><dd><input type="text" name="gender" /></dd>
+          <dt>DOB</dt><dd><input type="date" name="dob" /></dd>
+          <dt>TikTok handle</dt><dd><input type="text" name="tiktok" /></dd>
+          <dt>Shopee handle</dt><dd><input type="text" name="shopee" /></dd>
+          <dt>Lazada handle</dt><dd><input type="text" name="lazada" /></dd>
+          <dt>Affiliate+ email</dt><dd><input type="text" name="affiliate_plus" /></dd>
+        </dl>
+        <button type="submit">Create</button>
+      </form>
+      <p id="add-profile-result" class="result-msg"></p>
+    </div>
+  </div>
+
+  <!-- Add-mapping-row modal -->
+  <div id="mapping-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="mapping-modal-close" aria-label="Close">&times;</button>
+      <h2 id="mapping-modal-title">Add mapping row</h2>
+      <form id="mapping-form">
+        <input type="hidden" name="id" />
+        <dl class="profile-field-list">
+          <dt>Target kind</dt>
+          <dd>
+            <select name="target_kind" required>
+              <option value="input_field">input_field</option>
+              <option value="metafield">metafield</option>
+              <option value="tags_add">tags_add</option>
+            </select>
+          </dd>
+          <dt>Target path</dt><dd><input type="text" name="target_path" required placeholder="email / note / metafield key" /></dd>
+          <dt>Metafield namespace</dt><dd><input type="text" name="metafield_namespace" placeholder="custom" /></dd>
+          <dt>Metafield type</dt><dd><input type="text" name="metafield_type" placeholder="single_line_text_field" /></dd>
+          <dt>Source kind</dt>
+          <dd>
+            <select name="source_kind" required>
+              <option value="column">column</option>
+              <option value="channel_lookup">channel_lookup</option>
+              <option value="static">static</option>
+              <option value="template">template</option>
+              <option value="system">system</option>
+            </select>
+          </dd>
+          <dt>Source column</dt><dd><input type="text" name="source_column" placeholder="email, phone, nick_name, ..." /></dd>
+          <dt>Source channel</dt><dd><input type="text" name="source_channel" placeholder="tiktok / shopee / lazada / affiliate_plus" /></dd>
+          <dt>Source transform</dt><dd><input type="text" name="source_transform" placeholder="th_phone_e164 (optional)" /></dd>
+          <dt>Source template</dt><dd><input type="text" name="source_template" placeholder="e.g. Registered via KOL form on {{created_at:date}}" /></dd>
+          <dt>Source static</dt><dd><input type="text" name="source_static" placeholder='literal value, or JSON array e.g. ["kol","arm-v2"]' /></dd>
+          <dt>Source system</dt>
+          <dd>
+            <select name="source_system">
+              <option value="">(n/a)</option>
+              <option value="now_iso">now_iso</option>
+              <option value="sync_operation">sync_operation</option>
+            </select>
+          </dd>
+          <dt>Empty value</dt><dd><input type="text" name="empty_value" placeholder="fallback when source resolves to nothing" /></dd>
+          <dt>Apply on</dt>
+          <dd>
+            <label><input type="checkbox" name="apply_on_create" checked /> create</label>
+            <label><input type="checkbox" name="apply_on_update" checked /> update</label>
+          </dd>
+          <dt>Enabled</dt><dd><input type="checkbox" name="enabled" checked /></dd>
+          <dt>Sort order</dt><dd><input type="number" name="sort_order" value="0" /></dd>
+        </dl>
+        <button type="submit">Save mapping row</button>
+      </form>
+      <p id="mapping-form-result" class="result-msg"></p>
+    </div>
+  </div>
 
   <!-- Unified view/edit modal: opens read-only; "Edit" toggles the editable
        fields in place (line_uid, shopify_*, timestamps stay read-only always). -->
@@ -192,6 +307,17 @@
         <div>
           <h3>Handles</h3>
           <ul id="pm-handles" class="plain-list"></ul>
+          <form id="pm-add-handle-form" class="inline-form edit-only" hidden>
+            <select name="channel">
+              <option value="tiktok">TikTok</option>
+              <option value="shopee">Shopee</option>
+              <option value="lazada">Lazada</option>
+              <option value="affiliate_plus">Affiliate+</option>
+            </select>
+            <input type="text" name="value" placeholder="handle value" required />
+            <button type="submit">Add handle</button>
+          </form>
+          <p id="pm-add-handle-result" class="result-msg"></p>
           <h3>LINE UID history</h3>
           <ul id="pm-line-history" class="plain-list"></ul>
           <h3>Sync tasks</h3>
