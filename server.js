@@ -413,10 +413,10 @@ api.post('/relink-line-uid', async (req, res) => {
 });
 
 api.post('/notify', async (req, res) => {
-  const { internal_id, dry_run } = req.body || {};
+  const { internal_id, notification_type, dry_run } = req.body || {};
   const { status, json } = await callWorker('/admin-notify', {
     method: 'POST',
-    body: { internal_id, admin_id: req.adminUsername, dry_run: dry_run === true },
+    body: { internal_id, notification_type, admin_id: req.adminUsername, dry_run: dry_run === true },
   });
   res.status(status).json(json);
 });

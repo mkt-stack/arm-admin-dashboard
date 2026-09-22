@@ -351,6 +351,7 @@ function renderProfileModal(detail) {
 
   $('#pm-relink-form').dataset.internalId = profile.internal_id;
   $('#pm-notify-btn').dataset.internalId = profile.internal_id;
+  $('#pm-notify-type').value = 'full_profile';
   $('#pm-save-result').textContent = '';
   $('#pm-relink-result').textContent = '';
   $('#pm-notify-result').textContent = '';
@@ -449,7 +450,8 @@ $('#pm-relink-form').addEventListener('submit', async (e) => {
 
 $('#pm-notify-btn').addEventListener('click', async () => {
   const internal_id = $('#pm-notify-btn').dataset.internalId;
-  const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, dry_run: isDryRun() } });
+  const notification_type = $('#pm-notify-type').value;
+  const { status, json } = await api('/notify', { method: 'POST', body: { internal_id, notification_type, dry_run: isDryRun() } });
   resultLine($('#pm-notify-result'), status, json);
 });
 
