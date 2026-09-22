@@ -25,6 +25,7 @@
     <button class="tab-btn" data-tab="profiles">Profiles</button>
     <button class="tab-btn" data-tab="errors">Errors</button>
     <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
+    <button class="tab-btn" data-tab="reconcile">Reconcile</button>
     <button class="tab-btn" data-tab="survey-keys">Survey Keys</button>
     <button class="tab-btn" data-tab="campaigns">Campaign Participants</button>
     <button class="tab-btn" data-tab="config">Config</button>
@@ -161,6 +162,24 @@
         </thead>
         <tbody id="sync-tasks-tbody"></tbody>
       </table>
+    </section>
+
+    <section id="tab-reconcile" class="tab-panel">
+      <p class="config-hint">
+        Cross-checks D1 against Shopify for one person and lets you create a missing account, push a never-synced D1
+        profile to Shopify, or re-point the profile's Shopify link (e.g. when a customer started using a different
+        email in Shopify than the one they originally registered with). Start with LINE UID if you have it.
+      </p>
+      <form id="reconcile-search-form" class="inline-form">
+        <select id="reconcile-identifier-type">
+          <option value="line_uid" selected>LINE UID</option>
+          <option value="email">Email</option>
+          <option value="phone">Phone</option>
+        </select>
+        <input type="text" id="reconcile-identifier-value" placeholder="value to search by" required />
+        <button type="submit">Search</button>
+      </form>
+      <div id="reconcile-result"></div>
     </section>
 
     <section id="tab-survey-keys" class="tab-panel">

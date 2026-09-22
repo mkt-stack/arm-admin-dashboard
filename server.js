@@ -421,6 +421,26 @@ api.post('/notify', async (req, res) => {
   res.status(status).json(json);
 });
 
+// ---------- Reconcile tab (D1 <-> Shopify identity cross-check) ----------
+
+api.post('/reconcile/search', async (req, res) => {
+  const { identifier_type, identifier_value, candidate_email, candidate_phone } = req.body || {};
+  const { status, json } = await callWorker('/admin-reconcile/search', {
+    method: 'POST',
+    body: { identifier_type, identifier_value, candidate_email, candidate_phone },
+  });
+  res.status(status).json(json);
+});
+
+api.post('/reconcile/apply', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker('/admin-reconcile/apply', {
+    method: 'POST',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
 app.use('/api', api);
 
 // Anything else under an authenticated page load falls back to the app

@@ -552,3 +552,25 @@ h3 { font-size: 0.9rem; color: var(--muted); margin: 1.2rem 0 0.4rem; }
   overflow-x: auto;
   white-space: pre-wrap;
 }
+
+/* ---------- Reconcile tab ---------- */
+
+.reconcile-d1-summary, .reconcile-customer {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.82rem;
+  max-width: 420px;
+  margin: 0.5rem 0;
+}
+.reconcile-candidate-pick {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  margin: 0.4rem 0;
+  max-width: 420px;
+  cursor: pointer;
+}
+.reconcile-action-form { margin-top: 1rem; }

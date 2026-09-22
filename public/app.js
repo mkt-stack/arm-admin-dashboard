@@ -1276,6 +1276,239 @@ $('#campaign-log-load-more').addEventListener('click', () => loadCampaignLog(fal
 });
 $('#campaign-status-filter').addEventListener('change', () => loadCampaignLog(true));
 
+// ---------- Reconcile tab (D1 <-> Shopify identity cross-check) ----------
+//
+// Given a line_uid/email/phone, POST /reconcile/search classifies what D1
+// and Shopify each know about that person; this renders that classification
+// and wires up whichever action (create_fresh / relink_shopify /
+// push_to_shopify) applies, via POST /reconcile/apply. See
+// arm-worker-v2/PROJECT_CONTEXT.md §11 for the full design — in particular,
+// why Shopify's custom.line_uid metafield is shown for context only and
+// never treated as a conflict signal (only email/phone are).
+
+let reconcileLastSearch = null; // { identifierType, identifierValue } — reused by the "check a different email/phone" re-search
+
+function reconcileCustomerBox(customer, label) {
+  if (!customer) return `<p class="muted">${esc(label)}: none found</p>`;
+  const name = [customer.first_name, customer.last_name].filter(Boolean).join(' ');
+  return `<div class="reconcile-customer">
+    <strong>${esc(label)}</strong><br/>
+    ID: <code>${esc(customer.id)}</code><br/>
+    Email: ${esc(customer.email) || '—'}<br/>
+    Phone: ${esc(customer.phone) || '—'}<br/>
+    Name: ${esc(name) || '—'}<br/>
+    line_uid metafield: ${esc(customer.line_uid) || '—'} <span class="muted">(informational only — not treated as a conflict signal)</span><br/>
+    Tags: ${esc((customer.tags || []).join(', ')) || '—'}
+  </div>`;
+}
+
+function reconcileRecheckFormHtml() {
+  return `
+    <form id="reconcile-recheck-form" class="inline-form" style="margin-top:1rem">
+      <input type="email" id="reconcile-candidate-email" placeholder="check a different email" />
+      <input type="text" id="reconcile-candidate-phone" placeholder="check a different phone" />
+      <button type="submit" class="secondary-btn">Re-check against Shopify</button>
+    </form>`;
+}
+
+async function runReconcileSearch(identifierType, identifierValue, candidateEmail, candidatePhone) {
+  reconcileLastSearch = { identifierType, identifierValue };
+  const { status, json } = await api('/reconcile/search', {
+    method: 'POST',
+    body: {
+      identifier_type: identifierType,
+      identifier_value: identifierValue,
+      candidate_email: candidateEmail || undefined,
+      candidate_phone: candidatePhone || undefined,
+    },
+  });
+  const el = $('#reconcile-result');
+  if (status !== 200) {
+    el.innerHTML = `<p class="result-msg err">Error ${status}: ${esc(json.message || json.error || JSON.stringify(json))}</p>`;
+    return;
+  }
+  renderReconcileResult(json);
+}
+
+function renderReconcileResult(data) {
+  const el = $('#reconcile-result');
+  const parts = [];
+
+  if (data.classification === 'D1_NOT_FOUND') {
+    const prefill = { line_uid: '', email: '', phone: '' };
+    prefill[reconcileLastSearch.identifierType] = reconcileLastSearch.identifierValue;
+
+    parts.push(`<p><strong>No D1 profile found.</strong> Fill in the missing required field(s) to create one: ${esc(data.missing_fields.join(', '))}.</p>`);
+
+    const candidates = data.shopify_candidates || [];
+    if (candidates.length) {
+      parts.push('<p>Found existing Shopify customer(s) under this email/phone — link to one instead of creating a duplicate:</p>');
+      parts.push(
+        candidates
+          .map(
+            (c, i) => `<label class="reconcile-candidate-pick">
+              <input type="radio" name="reconcile-link-candidate" value="${esc(c.id)}" ${i === 0 ? 'checked' : ''} />
+              ${reconcileCustomerBox(c, 'Shopify candidate')}
+            </label>`
+          )
+          .join('') +
+          `<label class="reconcile-candidate-pick"><input type="radio" name="reconcile-link-candidate" value="" /> Create a brand new Shopify customer instead</label>`
+      );
+    }
+
+    parts.push(`
+      <form id="reconcile-create-form" class="reconcile-action-form">
+        <dl class="profile-field-list">
+          <dt>LINE UID *</dt><dd><input type="text" name="line_uid" value="${esc(prefill.line_uid)}" required /></dd>
+          <dt>Email *</dt><dd><input type="email" name="email" value="${esc(prefill.email)}" required /></dd>
+          <dt>Phone *</dt><dd><input type="text" name="phone" value="${esc(prefill.phone)}" required placeholder="0812345678" /></dd>
+          <dt>Nickname</dt><dd><input type="text" name="nick_name" /></dd>
+          <dt>Full name</dt><dd><input type="text" name="full_name" /></dd>
+        </dl>
+        <button type="submit">Create account</button>
+      </form>
+      <p id="reconcile-action-result" class="result-msg"></p>
+    `);
+  } else {
+    const p = data.d1_profile;
+    parts.push(`<div class="reconcile-d1-summary">
+      <strong>D1 profile ${esc(p.internal_id)}</strong><br/>
+      line_uid: ${esc(p.line_uid)}<br/>
+      email: ${esc(p.email)}<br/>
+      phone: ${esc(p.phone)}
+    </div>`);
+    parts.push(`<p><strong>Classification:</strong> ${esc(data.classification)}${data.stale_link ? ' — stored Shopify link no longer resolves (deleted customer)' : ''}</p>`);
+    parts.push(reconcileCustomerBox(data.current_shopify, 'Currently linked Shopify customer'));
+
+    if (data.classification === 'LINKED_CONSISTENT') {
+      parts.push('<p class="result-msg ok">D1 and Shopify agree on email and phone — nothing to reconcile.</p>');
+      parts.push('<button type="button" id="reconcile-push-btn" class="secondary-btn">Force re-sync anyway</button>');
+      parts.push('<p id="reconcile-action-result" class="result-msg"></p>');
+    }
+
+    if (data.classification === 'NEEDS_SHOPIFY_CREATE') {
+      parts.push('<p>No Shopify customer found under this email or phone.</p>');
+      parts.push('<button type="button" id="reconcile-push-btn">Push to Shopify (create)</button>');
+      parts.push('<p id="reconcile-action-result" class="result-msg"></p>');
+    }
+
+    if (data.classification === 'LINKED_DRIFTED' || data.classification === 'SHOPIFY_CANDIDATE_FOUND') {
+      parts.push('<h4>Candidate(s) found by search</h4>');
+      parts.push(reconcileCustomerBox(data.shopify_candidates.by_email, 'Matched by email'));
+      parts.push(reconcileCustomerBox(data.shopify_candidates.by_phone, 'Matched by phone'));
+      if (data.multiple_candidates) {
+        parts.push('<p class="result-msg err">Email and phone point at two DIFFERENT Shopify customers — pick the correct one carefully before relinking.</p>');
+      }
+      const uniqueCandidates = [...new Map([data.shopify_candidates.by_email, data.shopify_candidates.by_phone].filter(Boolean).map((c) => [c.id, c])).values()];
+      parts.push(`
+        <form id="reconcile-relink-form" class="reconcile-action-form">
+          <dl class="profile-field-list">
+            <dt>Relink to</dt>
+            <dd>
+              <select name="new_shopify_customer_id">
+                ${uniqueCandidates.map((c) => `<option value="${esc(c.id)}">${esc(c.id)} (${esc(c.email) || 'no email'})</option>`).join('')}
+              </select>
+            </dd>
+            <dt>Also adopt into D1</dt>
+            <dd>
+              <label><input type="checkbox" name="adopt_email" /> use this candidate's email as the D1 profile's email</label><br/>
+              <label><input type="checkbox" name="adopt_phone" /> use this candidate's phone as the D1 profile's phone</label>
+            </dd>
+          </dl>
+          <button type="submit">Relink Shopify customer</button>
+        </form>
+        <p id="reconcile-action-result" class="result-msg"></p>
+      `);
+    }
+
+    if (data.conflicts && (data.conflicts.email || data.conflicts.phone)) {
+      parts.push(`<p class="result-msg err">Conflict: a candidate value here is already registered to a different D1 profile (${esc(JSON.stringify(data.conflicts))}) — it cannot be adopted onto this one.</p>`);
+    }
+  }
+
+  parts.push(reconcileRecheckFormHtml());
+  el.innerHTML = parts.join('');
+  wireReconcileResultHandlers(data);
+}
+
+function wireReconcileResultHandlers(data) {
+  const createForm = $('#reconcile-create-form');
+  if (createForm) {
+    createForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(createForm);
+      const linkRadio = document.querySelector('input[name="reconcile-link-candidate"]:checked');
+      const { status, json } = await api('/reconcile/apply', {
+        method: 'POST',
+        body: {
+          action: 'create_fresh',
+          line_uid: fd.get('line_uid'),
+          email: fd.get('email'),
+          phone: fd.get('phone'),
+          nick_name: fd.get('nick_name') || undefined,
+          full_name: fd.get('full_name') || undefined,
+          link_shopify_customer_id: (linkRadio && linkRadio.value) || undefined,
+          dry_run: isDryRun(),
+        },
+      });
+      resultLine($('#reconcile-action-result'), status, json);
+      if (status === 200 && !isDryRun()) createForm.reset();
+    });
+  }
+
+  const relinkForm = $('#reconcile-relink-form');
+  if (relinkForm) {
+    relinkForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(relinkForm);
+      const newId = fd.get('new_shopify_customer_id');
+      const candidates = [data.shopify_candidates.by_email, data.shopify_candidates.by_phone].filter(Boolean);
+      const chosen = candidates.find((c) => c.id === newId);
+      const { status, json } = await api('/reconcile/apply', {
+        method: 'POST',
+        body: {
+          action: 'relink_shopify',
+          internal_id: data.d1_profile.internal_id,
+          new_shopify_customer_id: newId,
+          update_email: fd.get('adopt_email') && chosen ? chosen.email : undefined,
+          update_phone: fd.get('adopt_phone') && chosen ? chosen.phone : undefined,
+          dry_run: isDryRun(),
+        },
+      });
+      resultLine($('#reconcile-action-result'), status, json);
+    });
+  }
+
+  const pushBtn = $('#reconcile-push-btn');
+  if (pushBtn) {
+    pushBtn.addEventListener('click', async () => {
+      const { status, json } = await api('/reconcile/apply', {
+        method: 'POST',
+        body: { action: 'push_to_shopify', internal_id: data.d1_profile.internal_id, dry_run: isDryRun() },
+      });
+      resultLine($('#reconcile-action-result'), status, json);
+    });
+  }
+
+  const recheckForm = $('#reconcile-recheck-form');
+  if (recheckForm) {
+    recheckForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const candidateEmail = $('#reconcile-candidate-email').value.trim();
+      const candidatePhone = $('#reconcile-candidate-phone').value.trim();
+      runReconcileSearch(reconcileLastSearch.identifierType, reconcileLastSearch.identifierValue, candidateEmail, candidatePhone);
+    });
+  }
+}
+
+$('#reconcile-search-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const type = $('#reconcile-identifier-type').value;
+  const value = $('#reconcile-identifier-value').value.trim();
+  if (!value) return;
+  runReconcileSearch(type, value);
+});
+
 // ---------- init ----------
 
 loadWhoami();
