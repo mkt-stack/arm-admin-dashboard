@@ -517,6 +517,27 @@ dd { margin: 0; }
 h2 { margin-top: 0; }
 h3 { font-size: 0.9rem; color: var(--muted); margin: 1.2rem 0 0.4rem; }
 
+/* ---------- Survey Keys tab ---------- */
+
+.copy-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  max-width: 640px;
+  margin-bottom: 1rem;
+}
+.copy-box code {
+  flex: 1;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.copy-box button.copied { background: var(--ok); border-color: var(--ok); }
+
 /* ---------- Config tab ---------- */
 
 .config-hint { font-size: 0.82rem; color: var(--muted); max-width: 640px; margin: 0.2rem 0 0.8rem; }

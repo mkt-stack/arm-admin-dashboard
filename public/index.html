@@ -25,6 +25,8 @@
     <button class="tab-btn" data-tab="profiles">Profiles</button>
     <button class="tab-btn" data-tab="errors">Errors</button>
     <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
+    <button class="tab-btn" data-tab="survey-keys">Survey Keys</button>
+    <button class="tab-btn" data-tab="campaigns">Campaign Participants</button>
     <button class="tab-btn" data-tab="config">Config</button>
   </nav>
 
@@ -161,6 +163,47 @@
       </table>
     </section>
 
+    <section id="tab-survey-keys" class="tab-panel">
+      <h3>SurveyCake webhook endpoint</h3>
+      <p class="config-hint">Paste this into a form's Webhook/notification setting in SurveyCake when setting it up — SurveyCake calls it directly with each submission's <code>svid</code>/<code>hash</code>, no Make.com/n8n relay needed. Decryption uses whichever credential row below matches that form's Survey ID.</p>
+      <div class="copy-box">
+        <code id="surveycake-endpoint-url">—</code>
+        <button type="button" id="surveycake-endpoint-copy-btn" class="secondary-btn">Copy</button>
+      </div>
+
+      <h3 style="margin-top: 2rem">Survey credentials</h3>
+      <p class="config-hint">One row per SurveyCake form (Survey ID). Replaces the old Google Sheet + Apps Script sync — edits here take effect immediately, no separate "Sync Now" step.</p>
+      <div class="panel-toolbar">
+        <button id="add-survey-credential-btn" type="button">+ Add credential</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Survey ID</th><th>Hash Key</th><th>IV Key</th><th>Note</th><th>Synced At</th><th></th></tr>
+        </thead>
+        <tbody id="survey-credentials-tbody"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-campaigns" class="tab-panel">
+      <div class="panel-toolbar">
+        <input type="text" id="campaign-svid-filter" placeholder="Survey ID" style="max-width: 160px" />
+        <input type="text" id="campaign-line-uid-filter" placeholder="Line UID" style="max-width: 200px" />
+        <select id="campaign-status-filter">
+          <option value="">(any status)</option>
+          <option value="matched">matched</option>
+          <option value="unmatched">unmatched</option>
+        </select>
+        <button id="campaign-log-load-btn">Search</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Survey ID</th><th>Survey Title</th><th>Line UID</th><th>Nickname</th><th>Full name</th><th>Email</th><th>Status</th><th>Timestamp</th></tr>
+        </thead>
+        <tbody id="campaign-log-tbody"></tbody>
+      </table>
+      <button id="campaign-log-load-more" hidden>Load more</button>
+    </section>
+
     <section id="tab-config" class="tab-panel">
       <h3>Customer notification</h3>
       <p class="config-hint">Endpoint fired when a profile is successfully created/updated in Shopify — replaces a customer-facing "you're all set" message. Also fired on a successful manual sync-task retry.</p>
@@ -215,6 +258,25 @@
         <button type="submit">Create</button>
       </form>
       <p id="add-profile-result" class="result-msg"></p>
+    </div>
+  </div>
+
+  <!-- Add/edit survey-credential modal -->
+  <div id="survey-credential-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="survey-credential-modal-close" aria-label="Close">&times;</button>
+      <h2 id="survey-credential-modal-title">Add credential</h2>
+      <form id="survey-credential-form">
+        <dl class="profile-field-list">
+          <dt>Survey ID (svid) *</dt><dd><input type="text" name="svid" required placeholder="e.g. gN370" /></dd>
+          <dt>Hash Key *</dt><dd><input type="text" name="hash_key" required autocomplete="off" /></dd>
+          <dt>IV Key *</dt><dd><input type="text" name="iv_key" required autocomplete="off" /></dd>
+          <dt>Note</dt><dd><input type="text" name="note" placeholder="e.g. what this form/campaign is for" /></dd>
+          <dt>LINE UID field alias</dt><dd><input type="text" name="line_uid_alias" placeholder="line_uid (default — only change if this form aliased it differently)" /></dd>
+        </dl>
+        <button type="submit">Save</button>
+      </form>
+      <p id="survey-credential-form-result" class="result-msg"></p>
     </div>
   </div>
 

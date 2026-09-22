@@ -52,10 +52,14 @@ async function loadWhoami() {
 // SHOPIFY_STORE_DOMAIN isn't configured server-side), in which case the
 // Profiles-tab Shopify cell just shows the customer id as plain text.
 let shopifyStoreDomain = null;
+let workerBaseUrl = null;
 
 async function loadConfig() {
   const { json } = await api('/config');
   shopifyStoreDomain = json.shopify_store_domain || null;
+  workerBaseUrl = json.worker_base_url || null;
+  const endpointEl = $('#surveycake-endpoint-url');
+  if (endpointEl) endpointEl.textContent = workerBaseUrl ? `${workerBaseUrl}/decrypt-surveycake` : '(worker URL not configured)';
 }
 
 $('#logout-btn').addEventListener('click', async () => {
@@ -70,6 +74,8 @@ $all('.tab-btn').forEach((btn) => {
     btn.classList.add('active');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'config') loadConfigTab();
+    if (btn.dataset.tab === 'survey-keys') loadSurveyKeysTab();
+    if (btn.dataset.tab === 'campaigns') loadCampaignLog(true);
   });
 });
 
@@ -1114,6 +1120,159 @@ $('#sync-tasks-tbody').addEventListener('click', async (e) => {
   alert(status === 200 ? `Retried${json.dry_run ? ' (dry run)' : ''}` : json.message || 'Failed');
   if (!isDryRun()) loadSyncTasks();
 });
+
+// ---------- Survey Keys tab ----------
+
+$('#surveycake-endpoint-copy-btn').addEventListener('click', async () => {
+  const url = $('#surveycake-endpoint-url').textContent;
+  const btn = $('#surveycake-endpoint-copy-btn');
+  try {
+    await navigator.clipboard.writeText(url);
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+  } catch {
+    alert('Could not copy automatically — select and copy the URL manually.');
+  }
+});
+
+let surveyCredentialsCache = [];
+
+async function loadSurveyCredentials() {
+  const { json } = await api('/survey-credentials');
+  surveyCredentialsCache = json.credentials || [];
+  $('#survey-credentials-tbody').innerHTML = surveyCredentialsCache.length
+    ? surveyCredentialsCache
+        .map(
+          (c) => `<tr>
+            <td>${esc(c.svid)}</td>
+            <td><code>${esc(c.hash_key)}</code></td>
+            <td><code>${esc(c.iv_key)}</code></td>
+            <td>${esc(c.note) || '—'}</td>
+            <td>${fmtTs(c.updated_at)}</td>
+            <td>
+              <button type="button" class="link-btn survey-credential-edit-btn" data-svid="${esc(c.svid)}">edit</button>
+              <button type="button" class="link-btn survey-credential-delete-btn" data-svid="${esc(c.svid)}">delete</button>
+            </td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="6" class="muted">No survey credentials yet</td></tr>';
+}
+
+async function loadSurveyKeysTab() {
+  await loadSurveyCredentials();
+}
+
+function openSurveyCredentialModal(cred) {
+  const form = $('#survey-credential-form');
+  form.reset();
+  $('#survey-credential-modal-title').textContent = cred ? `Edit credential — ${cred.svid}` : 'Add credential';
+  form.dataset.editingSvid = cred ? cred.svid : '';
+  form.elements.svid.value = cred ? cred.svid : '';
+  form.elements.svid.readOnly = !!cred;
+  if (cred) {
+    form.elements.hash_key.value = cred.hash_key;
+    form.elements.iv_key.value = cred.iv_key;
+    form.elements.note.value = cred.note || '';
+    form.elements.line_uid_alias.value = cred.line_uid_alias || '';
+  }
+  $('#survey-credential-form-result').textContent = '';
+  $('#survey-credential-modal').hidden = false;
+}
+
+$('#add-survey-credential-btn').addEventListener('click', () => openSurveyCredentialModal(null));
+$('#survey-credential-modal').addEventListener('click', (e) => { if (e.target === $('#survey-credential-modal')) closeModal($('#survey-credential-modal')); });
+$('#survey-credential-modal-close').addEventListener('click', () => closeModal($('#survey-credential-modal')));
+
+$('#survey-credentials-tbody').addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('.survey-credential-edit-btn');
+  if (editBtn) {
+    const cred = surveyCredentialsCache.find((c) => c.svid === editBtn.dataset.svid);
+    if (cred) openSurveyCredentialModal(cred);
+    return;
+  }
+  const delBtn = e.target.closest('.survey-credential-delete-btn');
+  if (delBtn) {
+    if (!confirm(`Delete the credential for survey "${delBtn.dataset.svid}"? Decryption for that form will fail until a new one is added.`)) return;
+    const { status, json } = await api(`/survey-credentials/${encodeURIComponent(delBtn.dataset.svid)}`, { method: 'DELETE' });
+    if (status === 200) loadSurveyCredentials();
+    else alert(json.message || 'Failed to delete');
+  }
+});
+
+$('#survey-credential-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const editingSvid = form.dataset.editingSvid;
+  const body = {
+    svid: form.svid.value.trim(),
+    hash_key: form.hash_key.value.trim(),
+    iv_key: form.iv_key.value.trim(),
+    note: form.note.value.trim() || null,
+    line_uid_alias: form.line_uid_alias.value.trim() || null,
+    dry_run: isDryRun(),
+  };
+  const { status, json } = editingSvid
+    ? await api(`/survey-credentials/${encodeURIComponent(editingSvid)}`, { method: 'PUT', body })
+    : await api('/survey-credentials', { method: 'POST', body });
+  if (status === 200 && !isDryRun()) {
+    closeModal($('#survey-credential-modal'));
+    loadSurveyCredentials();
+    return;
+  }
+  resultLine($('#survey-credential-form-result'), status, json);
+});
+
+// ---------- Campaign Participants tab ----------
+
+let campaignLogCursor = null;
+
+async function loadCampaignLog(reset = true) {
+  if (reset) campaignLogCursor = null;
+  const params = new URLSearchParams();
+  const svid = $('#campaign-svid-filter').value.trim();
+  const lineUid = $('#campaign-line-uid-filter').value.trim();
+  const status = $('#campaign-status-filter').value;
+  if (svid) params.set('svid', svid);
+  if (lineUid) params.set('line_uid', lineUid);
+  if (status) params.set('status', status);
+  if (campaignLogCursor) params.set('cursor', campaignLogCursor);
+
+  const { json } = await api(`/campaign-log?${params.toString()}`);
+  const tbody = $('#campaign-log-tbody');
+  if (reset) tbody.innerHTML = '';
+  const rows = json.campaign_log || [];
+  tbody.insertAdjacentHTML(
+    'beforeend',
+    rows.length
+      ? rows
+          .map(
+            (r) => `<tr>
+              <td>${esc(r.svid)}</td>
+              <td>${esc(r.survey_title) || '—'}</td>
+              <td>${esc(r.line_uid) || '—'}</td>
+              <td>${esc(r.nick_name) || '—'}</td>
+              <td>${esc(r.full_name) || '—'}</td>
+              <td>${esc(r.email) || '—'}</td>
+              <td>${esc(r.status)}</td>
+              <td>${fmtTs(r.occurred_at)}</td>
+            </tr>`
+          )
+          .join('')
+      : reset ? '<tr><td colspan="8" class="muted">No campaign submissions yet</td></tr>' : ''
+  );
+  campaignLogCursor = json.next_cursor || null;
+  $('#campaign-log-load-more').hidden = !campaignLogCursor;
+}
+
+$('#campaign-log-load-btn').addEventListener('click', () => loadCampaignLog(true));
+$('#campaign-log-load-more').addEventListener('click', () => loadCampaignLog(false));
+[$('#campaign-svid-filter'), $('#campaign-line-uid-filter')].forEach((el) => {
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCampaignLog(true); });
+});
+$('#campaign-status-filter').addEventListener('change', () => loadCampaignLog(true));
 
 // ---------- init ----------
 

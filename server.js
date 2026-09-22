@@ -196,7 +196,10 @@ const api = express.Router();
 api.use(requireAuthApi);
 
 api.get('/config', (req, res) => {
-  res.json({ shopify_store_domain: SHOPIFY_STORE_DOMAIN || null });
+  // worker_base_url isn't a secret (it's the worker's public deployed URL) —
+  // the Survey Keys tab uses it to build the copiable /decrypt-surveycake
+  // endpoint link. ARM_ADMIN_TOKEN stays server-side only, same as ever.
+  res.json({ shopify_store_domain: SHOPIFY_STORE_DOMAIN || null, worker_base_url: WORKER_BASE });
 });
 
 api.get('/profiles', async (req, res) => {
@@ -350,6 +353,44 @@ api.post('/shopify-mapping/test', async (req, res) => {
     method: 'POST',
     body: req.body || {},
   });
+  res.status(status).json(json);
+});
+
+// ---------- Survey Keys tab (kol_survey_credentials) ----------
+
+api.get('/survey-credentials', async (req, res) => {
+  const { status, json } = await callWorker('/admin/survey-credentials');
+  res.status(status).json(json);
+});
+
+api.post('/survey-credentials', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker('/admin/survey-credentials', {
+    method: 'POST',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.put('/survey-credentials/:svid', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker(`/admin/survey-credentials/${encodeURIComponent(req.params.svid)}`, {
+    method: 'PUT',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.delete('/survey-credentials/:svid', async (req, res) => {
+  const { status, json } = await callWorker(`/admin/survey-credentials/${encodeURIComponent(req.params.svid)}`, { method: 'DELETE' });
+  res.status(status).json(json);
+});
+
+// ---------- Campaign Participants tab (kol_campaign_log) ----------
+
+api.get('/campaign-log', async (req, res) => {
+  const qs = new URLSearchParams(req.query).toString();
+  const { status, json } = await callWorker(`/admin/campaign-log${qs ? `?${qs}` : ''}`);
   res.status(status).json(json);
 });
 
