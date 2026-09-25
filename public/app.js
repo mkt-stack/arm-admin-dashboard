@@ -116,10 +116,15 @@ function shopifyCustomerCell(p) {
   </a>`;
 }
 
-// Profiles table has 12 columns (a leading expand/collapse toggle + the 11
-// columns in index.html's thead); handle rows span all but a leading indent
-// cell that lines up under the toggle column.
-const PROFILE_TOTAL_COLS = 12;
+// Profiles table has 13 columns (a leading select checkbox + expand/collapse
+// toggle + the 11 columns in index.html's thead); handle rows span all but a
+// leading indent cell that lines up under those two leading columns.
+const PROFILE_TOTAL_COLS = 13;
+
+// internal_ids checked via the row-select checkboxes — survives paging
+// ("Load more") but is cleared on a fresh search, and backs the "Export
+// selected" option in the Profiles-tab export dropdown.
+const selectedProfileIds = new Set();
 
 // Whether newly-rendered handle rows start expanded — kept in sync with the
 // "Expand all" toolbar button so paging in more rows (or a fresh search)
@@ -129,7 +134,11 @@ let allHandlesExpanded = false;
 function profileRowHtml(p) {
   const handles = p.handles || [];
   const expanded = allHandlesExpanded;
+  const selected = selectedProfileIds.has(p.internal_id);
   const parentRow = `<tr class="profile-row" data-id="${esc(p.internal_id)}">
+    <td class="row-select-cell">
+      <input type="checkbox" class="row-select-checkbox" data-id="${esc(p.internal_id)}" ${selected ? 'checked' : ''} />
+    </td>
     <td class="row-toggle-cell">
       <button class="row-toggle-btn${expanded ? ' expanded' : ''}" type="button" data-id="${esc(p.internal_id)}" aria-expanded="${expanded}" title="${expanded ? 'Hide handles' : 'Show handles'}">&#9656;</button>
     </td>
@@ -155,12 +164,12 @@ function profileRowHtml(p) {
   // wrapping to a new line after that) rather than one row per handle.
   const handleRow = handles.length
     ? `<tr class="handle-row" data-parent="${esc(p.internal_id)}"${hiddenAttr}>
-        <td class="handle-indent"></td>
-        <td colspan="${PROFILE_TOTAL_COLS - 1}" class="handle-cell">
+        <td class="handle-indent" colspan="2"></td>
+        <td colspan="${PROFILE_TOTAL_COLS - 2}" class="handle-cell">
           <div class="handle-cards">${handles.map((h) => handleCardHtml(h)).join('')}</div>
         </td>
       </tr>`
-    : `<tr class="handle-row handle-row-empty" data-parent="${esc(p.internal_id)}"${hiddenAttr}><td class="handle-indent"></td><td colspan="${PROFILE_TOTAL_COLS - 1}" class="muted handle-cell">No handles linked</td></tr>`;
+    : `<tr class="handle-row handle-row-empty" data-parent="${esc(p.internal_id)}"${hiddenAttr}><td class="handle-indent" colspan="2"></td><td colspan="${PROFILE_TOTAL_COLS - 2}" class="muted handle-cell">No handles linked</td></tr>`;
 
   return parentRow + handleRow;
 }
@@ -212,7 +221,40 @@ function bindRowActions(tbodyEl) {
     if (handleCancelBtn) return setHandleCardEditing(handleCancelBtn.closest('.handle-card'), false);
     if (handleSaveBtn) return saveHandleEdit(handleSaveBtn.closest('.handle-card'));
   });
+
+  tbodyEl.addEventListener('change', (e) => {
+    const cb = e.target.closest('.row-select-checkbox');
+    if (!cb) return;
+    if (cb.checked) selectedProfileIds.add(cb.dataset.id);
+    else selectedProfileIds.delete(cb.dataset.id);
+    updateSelectionUi();
+  });
 }
+
+// Keeps the header "select all" checkbox (checked/indeterminate/unchecked)
+// and the "Export selected (N)" button in sync with selectedProfileIds —
+// call after any change to selection or to the set of rendered rows.
+function updateSelectionUi() {
+  const boxes = $all('#profiles-tbody .row-select-checkbox');
+  const checkedCount = boxes.filter((b) => selectedProfileIds.has(b.dataset.id)).length;
+  const selectAll = $('#profiles-select-all');
+  selectAll.checked = boxes.length > 0 && checkedCount === boxes.length;
+  selectAll.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
+
+  const exportSelectedBtn = $('#export-selected-btn');
+  exportSelectedBtn.textContent = `Export selected (${selectedProfileIds.size})`;
+  exportSelectedBtn.disabled = selectedProfileIds.size === 0;
+}
+
+$('#profiles-select-all').addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  $all('#profiles-tbody .row-select-checkbox').forEach((cb) => {
+    cb.checked = checked;
+    if (checked) selectedProfileIds.add(cb.dataset.id);
+    else selectedProfileIds.delete(cb.dataset.id);
+  });
+  updateSelectionUi();
+});
 
 $('#profiles-toggle-all-btn').addEventListener('click', () => {
   allHandlesExpanded = !allHandlesExpanded;
@@ -820,7 +862,10 @@ function renderChannelConnectionsChart(cc) {
 let profilesCursor = null;
 
 async function searchProfiles(reset = true) {
-  if (reset) profilesCursor = null;
+  if (reset) {
+    profilesCursor = null;
+    selectedProfileIds.clear();
+  }
   const q = $('#profile-search').value.trim();
   const params = new URLSearchParams();
   if (q) params.set('q', q);
@@ -836,12 +881,58 @@ async function searchProfiles(reset = true) {
   tbody.insertAdjacentHTML('beforeend', (json.profiles || []).map((p) => profileRowHtml(p)).join(''));
   profilesCursor = json.next_cursor || null;
   $('#profiles-load-more').hidden = !profilesCursor;
+  updateSelectionUi();
 }
 
 $('#profile-search-btn').addEventListener('click', () => searchProfiles(true));
 $('#profile-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchProfiles(true); });
 $('#profiles-load-more').addEventListener('click', () => searchProfiles(false));
 bindRowActions($('#profiles-tbody'));
+
+// ---------- Profiles tab: export as Excel ----------
+//
+// All three modes hit the same GET /api/profiles/export (proxying
+// arm-worker-v2's /admin/profiles/export) and download an .xlsx via
+// Content-Disposition. Opened in a new tab rather than navigating the
+// current one, so a server error (e.g. an expired session) shows up as its
+// own page instead of blowing away the SPA.
+
+function buildExportUrl(mode) {
+  const params = new URLSearchParams();
+  if (mode === 'selected') {
+    params.set('ids', Array.from(selectedProfileIds).join(','));
+  } else if (mode === 'filtered') {
+    const q = $('#profile-search').value.trim();
+    if (q) params.set('q', q);
+    if (selectedChannelFilters.size) params.set('channels', Array.from(selectedChannelFilters).join(','));
+    const dateFrom = $('#date-from-input').value;
+    const dateTo = $('#date-to-input').value;
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+  }
+  // mode === 'all' — no params, worker returns every profile.
+  const qs = params.toString();
+  return `/api/profiles/export${qs ? `?${qs}` : ''}`;
+}
+
+function triggerExport(mode) {
+  if (mode === 'selected' && selectedProfileIds.size === 0) return;
+  window.open(buildExportUrl(mode), '_blank');
+  $('#export-dropdown-panel').hidden = true;
+}
+
+$('#export-all-btn').addEventListener('click', () => triggerExport('all'));
+$('#export-filtered-btn').addEventListener('click', () => triggerExport('filtered'));
+$('#export-selected-btn').addEventListener('click', () => triggerExport('selected'));
+
+$('#export-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#export-dropdown-panel').hidden = !$('#export-dropdown-panel').hidden;
+});
+document.addEventListener('click', (e) => {
+  const wrap = $('#export-dropdown-wrap');
+  if (wrap && !wrap.contains(e.target)) $('#export-dropdown-panel').hidden = true;
+});
 
 // ---------- Profiles tab: channel filter (multiselect, AND across channels) ----------
 

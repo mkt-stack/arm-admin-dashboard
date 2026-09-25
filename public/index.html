@@ -115,10 +115,22 @@
         </div>
 
         <button id="profiles-toggle-all-btn" class="secondary-btn" type="button">Expand all</button>
+
+        <div class="filter-dropdown-wrap" id="export-dropdown-wrap">
+          <button type="button" id="export-btn" class="secondary-btn filter-btn">
+            Export <span class="filter-caret">&#9662;</span>
+          </button>
+          <div class="filter-dropdown-panel" id="export-dropdown-panel" hidden>
+            <button type="button" class="export-option-btn" id="export-all-btn">Export all profiles</button>
+            <button type="button" class="export-option-btn" id="export-filtered-btn">Export filtered results</button>
+            <button type="button" class="export-option-btn" id="export-selected-btn" disabled>Export selected (0)</button>
+          </div>
+        </div>
       </div>
       <table class="data-table profiles-table">
         <thead>
           <tr>
+            <th><input type="checkbox" id="profiles-select-all" title="Select all loaded profiles" /></th>
             <th></th><th>Internal ID</th><th>Line UID</th><th>Email</th><th>Phone</th>
             <th>Nickname</th><th>Full name</th><th>Gender</th><th>Age</th>
             <th>Updated</th><th></th><th></th>

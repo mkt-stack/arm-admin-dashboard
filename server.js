@@ -23,6 +23,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildProfilesWorkbook } from './profiles-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -221,6 +222,23 @@ api.get('/stats/timeseries', async (req, res) => {
 api.get('/stats/demographics', async (req, res) => {
   const { status, json } = await callWorker('/admin/stats/demographics');
   res.status(status).json(json);
+});
+
+// Registered before /profiles/:id so "export" isn't swallowed as an :id.
+// Streams an .xlsx straight to the browser — the worker only ever returns
+// JSON (arm-worker-v2/src/index.js's exportProfiles), this is where that
+// gets turned into the actual file.
+api.get('/profiles/export', async (req, res) => {
+  const qs = new URLSearchParams(req.query).toString();
+  const { status, json } = await callWorker(`/admin/profiles/export${qs ? `?${qs}` : ''}`);
+  if (status !== 200) return res.status(status).json(json);
+
+  const workbook = buildProfilesWorkbook(json.profiles || []);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15); // YYYYMMDDTHHmmss
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="arm-profiles-export-${stamp}.xlsx"`);
+  await workbook.xlsx.write(res);
+  res.end();
 });
 
 api.get('/profiles/:id', async (req, res) => {

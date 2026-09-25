@@ -159,6 +159,26 @@ main { padding: 1.5rem; }
 .filter-option:hover { background: var(--bg); }
 .filter-option input[type="checkbox"] { margin: 0; }
 
+/* ---------- Profiles tab: export dropdown + row-selection checkboxes ---------- */
+
+.export-option-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: inherit;
+  white-space: nowrap;
+}
+.export-option-btn:hover:not(:disabled) { background: var(--bg); }
+.export-option-btn:disabled { color: var(--muted); cursor: not-allowed; }
+
+.row-select-cell { width: 1%; text-align: center; }
+
 /* ---------- Profiles tab: registration date filter ---------- */
 
 .date-filter { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); }
