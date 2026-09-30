@@ -198,7 +198,7 @@ api.use(requireAuthApi);
 
 api.get('/config', (req, res) => {
   // worker_base_url isn't a secret (it's the worker's public deployed URL) —
-  // the Survey Keys tab uses it to build the copiable /decrypt-surveycake
+  // the Campaign Setup tab uses it to build the copiable /decrypt-surveycake
   // endpoint link. ARM_ADMIN_TOKEN stays server-side only, same as ever.
   res.json({ shopify_store_domain: SHOPIFY_STORE_DOMAIN || null, worker_base_url: WORKER_BASE });
 });
@@ -374,7 +374,7 @@ api.post('/shopify-mapping/test', async (req, res) => {
   res.status(status).json(json);
 });
 
-// ---------- Survey Keys tab (kol_survey_credentials) ----------
+// ---------- Campaign Setup tab (kol_survey_credentials + kol_campaign_participants) ----------
 
 api.get('/survey-credentials', async (req, res) => {
   const { status, json } = await callWorker('/admin/survey-credentials');
@@ -401,6 +401,17 @@ api.put('/survey-credentials/:svid', async (req, res) => {
 
 api.delete('/survey-credentials/:svid', async (req, res) => {
   const { status, json } = await callWorker(`/admin/survey-credentials/${encodeURIComponent(req.params.svid)}`, { method: 'DELETE' });
+  res.status(status).json(json);
+});
+
+api.get('/campaign-participants', async (req, res) => {
+  const qs = new URLSearchParams(req.query).toString();
+  const { status, json } = await callWorker(`/admin/campaign-participants${qs ? `?${qs}` : ''}`);
+  res.status(status).json(json);
+});
+
+api.delete('/campaign-participants/:id', async (req, res) => {
+  const { status, json } = await callWorker(`/admin/campaign-participants/${encodeURIComponent(req.params.id)}`, { method: 'DELETE' });
   res.status(status).json(json);
 });
 

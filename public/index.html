@@ -26,7 +26,7 @@
     <button class="tab-btn" data-tab="errors">Errors</button>
     <button class="tab-btn" data-tab="sync-tasks">Sync Tasks</button>
     <button class="tab-btn" data-tab="reconcile">Reconcile</button>
-    <button class="tab-btn" data-tab="survey-keys">Survey Keys</button>
+    <button class="tab-btn" data-tab="campaign-setup">Campaign Setup</button>
     <button class="tab-btn" data-tab="campaigns">Campaign Participants</button>
     <button class="tab-btn" data-tab="config">Config</button>
   </nav>
@@ -194,7 +194,7 @@
       <div id="reconcile-result"></div>
     </section>
 
-    <section id="tab-survey-keys" class="tab-panel">
+    <section id="tab-campaign-setup" class="tab-panel">
       <h3>SurveyCake webhook endpoint</h3>
       <p class="config-hint">Paste this into a form's Webhook/notification setting in SurveyCake when setting it up — SurveyCake calls it directly with each submission's <code>svid</code>/<code>hash</code>, no Make.com/n8n relay needed. Decryption uses whichever credential row below matches that form's Survey ID.</p>
       <div class="copy-box">
@@ -202,14 +202,14 @@
         <button type="button" id="surveycake-endpoint-copy-btn" class="secondary-btn">Copy</button>
       </div>
 
-      <h3 style="margin-top: 2rem">Survey credentials</h3>
-      <p class="config-hint">One row per SurveyCake form (Survey ID). Replaces the old Google Sheet + Apps Script sync — edits here take effect immediately, no separate "Sync Now" step.</p>
+      <h3 style="margin-top: 2rem">Campaigns</h3>
+      <p class="config-hint">One row per SurveyCake form (Survey ID). A form only accepts <code>/validate-eligibility</code> checks once it has a row here with its Hash Key + IV Key — until then it returns FORM_NOT_AVAILABLE. Quota counts completions recorded via <code>/record-eligibility</code>, not checks. Edits take effect immediately.</p>
       <div class="panel-toolbar">
-        <button id="add-survey-credential-btn" type="button">+ Add credential</button>
+        <button id="add-survey-credential-btn" type="button">+ Add campaign</button>
       </div>
       <table class="data-table">
         <thead>
-          <tr><th>Survey ID</th><th>Hash Key</th><th>IV Key</th><th>Note</th><th>Synced At</th><th></th></tr>
+          <tr><th>Survey ID</th><th>Note</th><th>Quota used</th><th>Prevent duplicate</th><th>Required handles</th><th>Hash Key</th><th>IV Key</th><th>Updated At</th><th></th></tr>
         </thead>
         <tbody id="survey-credentials-tbody"></tbody>
       </table>
@@ -304,10 +304,35 @@
           <dt>IV Key *</dt><dd><input type="text" name="iv_key" required autocomplete="off" /></dd>
           <dt>Note</dt><dd><input type="text" name="note" placeholder="e.g. what this form/campaign is for" /></dd>
           <dt>LINE UID field alias</dt><dd><input type="text" name="line_uid_alias" placeholder="line_uid (default — only change if this form aliased it differently)" /></dd>
+          <dt>Quota</dt><dd><input type="number" name="quota" min="0" step="1" placeholder="blank = unlimited" /></dd>
+          <dt>Prevent duplicate</dt><dd><label class="filter-option"><input type="checkbox" name="prevent_duplicate" checked /> Reject someone who has already completed this form</label></dd>
+          <dt>Required handles</dt>
+          <dd>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="tiktok" /> TikTok</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="shopee" /> Shopee</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="lazada" /> Lazada</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="affiliate_plus" /> Affiliate+</label>
+          </dd>
         </dl>
         <button type="submit">Save</button>
       </form>
       <p id="survey-credential-form-result" class="result-msg"></p>
+    </div>
+  </div>
+
+  <!-- Recorded participants modal (kol_campaign_participants for one svid) -->
+  <div id="campaign-participants-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="campaign-participants-modal-close" aria-label="Close">&times;</button>
+      <h2 id="campaign-participants-modal-title">Participants</h2>
+      <p class="config-hint">Completions recorded via <code>/record-eligibility</code>. Removing a row frees its quota slot and, with Prevent duplicate on, lets that customer pass validation again.</p>
+      <table class="data-table">
+        <thead>
+          <tr><th>Internal ID</th><th>Nickname</th><th>Email</th><th>Recorded via</th><th>Flags</th><th>Recorded At</th><th></th></tr>
+        </thead>
+        <tbody id="campaign-participants-tbody"></tbody>
+      </table>
+      <button id="campaign-participants-load-more" type="button" hidden>Load more</button>
     </div>
   </div>
 

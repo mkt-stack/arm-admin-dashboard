@@ -537,7 +537,7 @@ dd { margin: 0; }
 h2 { margin-top: 0; }
 h3 { font-size: 0.9rem; color: var(--muted); margin: 1.2rem 0 0.4rem; }
 
-/* ---------- Survey Keys tab ---------- */
+/* ---------- Campaign Setup tab ---------- */
 
 .copy-box {
   display: flex;

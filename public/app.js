@@ -74,7 +74,7 @@ $all('.tab-btn').forEach((btn) => {
     btn.classList.add('active');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'config') loadConfigTab();
-    if (btn.dataset.tab === 'survey-keys') loadSurveyKeysTab();
+    if (btn.dataset.tab === 'campaign-setup') loadCampaignSetupTab();
     if (btn.dataset.tab === 'campaigns') loadCampaignLog(true);
   });
 });
@@ -1214,7 +1214,7 @@ $('#sync-tasks-tbody').addEventListener('click', async (e) => {
   if (!isDryRun()) loadSyncTasks();
 });
 
-// ---------- Survey Keys tab ----------
+// ---------- Campaign Setup tab ----------
 
 $('#surveycake-endpoint-copy-btn').addEventListener('click', async () => {
   const url = $('#surveycake-endpoint-url').textContent;
@@ -1240,28 +1240,36 @@ async function loadSurveyCredentials() {
         .map(
           (c) => `<tr>
             <td>${esc(c.svid)}</td>
+            <td>${esc(c.note) || '—'}</td>
+            <td>${fmtNum(c.quota_used)} / ${c.quota === null || c.quota === undefined ? '∞' : fmtNum(c.quota)}</td>
+            <td>${c.prevent_duplicate ? 'Yes' : 'No'}</td>
+            <td>${requiredChannelList(c.required_channels).map((ch) => esc(CHANNEL_META[ch] ? CHANNEL_META[ch].label : ch)).join(', ') || '—'}</td>
             <td><code>${esc(c.hash_key)}</code></td>
             <td><code>${esc(c.iv_key)}</code></td>
-            <td>${esc(c.note) || '—'}</td>
             <td>${fmtTs(c.updated_at)}</td>
             <td>
               <button type="button" class="link-btn survey-credential-edit-btn" data-svid="${esc(c.svid)}">edit</button>
+              <button type="button" class="link-btn campaign-participants-btn" data-svid="${esc(c.svid)}">participants</button>
               <button type="button" class="link-btn survey-credential-delete-btn" data-svid="${esc(c.svid)}">delete</button>
             </td>
           </tr>`
         )
         .join('')
-    : '<tr><td colspan="6" class="muted">No survey credentials yet</td></tr>';
+    : '<tr><td colspan="9" class="muted">No campaigns yet</td></tr>';
 }
 
-async function loadSurveyKeysTab() {
+function requiredChannelList(stored) {
+  return (stored || '').split(',').map((c) => c.trim()).filter(Boolean);
+}
+
+async function loadCampaignSetupTab() {
   await loadSurveyCredentials();
 }
 
 function openSurveyCredentialModal(cred) {
   const form = $('#survey-credential-form');
   form.reset();
-  $('#survey-credential-modal-title').textContent = cred ? `Edit credential — ${cred.svid}` : 'Add credential';
+  $('#survey-credential-modal-title').textContent = cred ? `Edit campaign — ${cred.svid}` : 'Add campaign';
   form.dataset.editingSvid = cred ? cred.svid : '';
   form.elements.svid.value = cred ? cred.svid : '';
   form.elements.svid.readOnly = !!cred;
@@ -1270,6 +1278,10 @@ function openSurveyCredentialModal(cred) {
     form.elements.iv_key.value = cred.iv_key;
     form.elements.note.value = cred.note || '';
     form.elements.line_uid_alias.value = cred.line_uid_alias || '';
+    form.elements.quota.value = cred.quota === null || cred.quota === undefined ? '' : cred.quota;
+    form.elements.prevent_duplicate.checked = !!cred.prevent_duplicate;
+    const required = requiredChannelList(cred.required_channels);
+    $all('#survey-credential-form input[name="required_channels"]').forEach((cb) => { cb.checked = required.includes(cb.value); });
   }
   $('#survey-credential-form-result').textContent = '';
   $('#survey-credential-modal').hidden = false;
@@ -1286,9 +1298,14 @@ $('#survey-credentials-tbody').addEventListener('click', async (e) => {
     if (cred) openSurveyCredentialModal(cred);
     return;
   }
+  const participantsBtn = e.target.closest('.campaign-participants-btn');
+  if (participantsBtn) {
+    openCampaignParticipantsModal(participantsBtn.dataset.svid);
+    return;
+  }
   const delBtn = e.target.closest('.survey-credential-delete-btn');
   if (delBtn) {
-    if (!confirm(`Delete the credential for survey "${delBtn.dataset.svid}"? Decryption for that form will fail until a new one is added.`)) return;
+    if (!confirm(`Delete the campaign for survey "${delBtn.dataset.svid}"? Decryption and eligibility checks for that form will fail until it's added again. Recorded participants are kept.`)) return;
     const { status, json } = await api(`/survey-credentials/${encodeURIComponent(delBtn.dataset.svid)}`, { method: 'DELETE' });
     if (status === 200) loadSurveyCredentials();
     else alert(json.message || 'Failed to delete');
@@ -1305,6 +1322,9 @@ $('#survey-credential-form').addEventListener('submit', async (e) => {
     iv_key: form.iv_key.value.trim(),
     note: form.note.value.trim() || null,
     line_uid_alias: form.line_uid_alias.value.trim() || null,
+    quota: form.quota.value.trim() === '' ? null : Number(form.quota.value),
+    prevent_duplicate: form.prevent_duplicate.checked,
+    required_channels: $all('#survey-credential-form input[name="required_channels"]:checked').map((cb) => cb.value),
     dry_run: isDryRun(),
   };
   const { status, json } = editingSvid
@@ -1316,6 +1336,67 @@ $('#survey-credential-form').addEventListener('submit', async (e) => {
     return;
   }
   resultLine($('#survey-credential-form-result'), status, json);
+});
+
+// Recorded participants for one svid (kol_campaign_participants)
+
+let participantsSvid = null;
+let participantsCursor = null;
+
+async function loadCampaignParticipants(reset = true) {
+  if (reset) participantsCursor = null;
+  const params = new URLSearchParams({ svid: participantsSvid });
+  if (participantsCursor) params.set('cursor', participantsCursor);
+
+  const { json } = await api(`/campaign-participants?${params.toString()}`);
+  const tbody = $('#campaign-participants-tbody');
+  if (reset) tbody.innerHTML = '';
+  const rows = json.participants || [];
+  tbody.insertAdjacentHTML(
+    'beforeend',
+    rows.length
+      ? rows
+          .map((r) => {
+            const flags = [r.is_duplicate ? 'duplicate' : '', r.over_quota ? 'over quota' : ''].filter(Boolean).join(', ');
+            return `<tr>
+              <td>${esc(r.internal_id)}</td>
+              <td>${esc(r.nick_name) || '—'}</td>
+              <td>${esc(r.email) || '—'}</td>
+              <td>${esc(r.input_identifier_type)}: ${esc(r.input_identifier_value)}</td>
+              <td>${esc(flags) || '—'}</td>
+              <td>${fmtTs(r.recorded_at)}</td>
+              <td><button type="button" class="link-btn campaign-participant-remove-btn" data-id="${esc(r.id)}">remove</button></td>
+            </tr>`;
+          })
+          .join('')
+      : reset ? '<tr><td colspan="7" class="muted">No completions recorded yet</td></tr>' : ''
+  );
+  participantsCursor = json.next_cursor || null;
+  $('#campaign-participants-load-more').hidden = !participantsCursor;
+}
+
+function openCampaignParticipantsModal(svid) {
+  participantsSvid = svid;
+  $('#campaign-participants-modal-title').textContent = `Participants — ${svid}`;
+  $('#campaign-participants-modal').hidden = false;
+  loadCampaignParticipants(true);
+}
+
+$('#campaign-participants-modal').addEventListener('click', (e) => { if (e.target === $('#campaign-participants-modal')) closeModal($('#campaign-participants-modal')); });
+$('#campaign-participants-modal-close').addEventListener('click', () => closeModal($('#campaign-participants-modal')));
+$('#campaign-participants-load-more').addEventListener('click', () => loadCampaignParticipants(false));
+
+$('#campaign-participants-tbody').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.campaign-participant-remove-btn');
+  if (!btn) return;
+  if (!confirm('Remove this recorded completion? It frees one quota slot.')) return;
+  const { status, json } = await api(`/campaign-participants/${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' });
+  if (status === 200) {
+    loadCampaignParticipants(true);
+    loadSurveyCredentials(); // refresh the quota-used column
+  } else {
+    alert(json.message || 'Failed to remove');
+  }
 });
 
 // ---------- Campaign Participants tab ----------
