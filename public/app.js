@@ -1263,7 +1263,7 @@ function requiredChannelList(stored) {
 }
 
 async function loadCampaignSetupTab() {
-  await loadSurveyCredentials();
+  await Promise.all([loadSurveyCredentials(), loadEventCampaigns()]);
 }
 
 function openSurveyCredentialModal(cred) {
@@ -1300,7 +1300,7 @@ $('#survey-credentials-tbody').addEventListener('click', async (e) => {
   }
   const participantsBtn = e.target.closest('.campaign-participants-btn');
   if (participantsBtn) {
-    openCampaignParticipantsModal(participantsBtn.dataset.svid);
+    openCampaignParticipantsModal('svid', participantsBtn.dataset.svid);
     return;
   }
   const delBtn = e.target.closest('.survey-credential-delete-btn');
@@ -1338,14 +1338,111 @@ $('#survey-credential-form').addEventListener('submit', async (e) => {
   resultLine($('#survey-credential-form-result'), status, json);
 });
 
-// Recorded participants for one svid (kol_campaign_participants)
+// Event campaigns (kol_event_campaigns) — same fields as a survey campaign
+// minus hash/IV keys and the LINE UID alias.
 
-let participantsSvid = null;
+let eventCampaignsCache = [];
+
+async function loadEventCampaigns() {
+  const { json } = await api('/event-campaigns');
+  eventCampaignsCache = json.events || [];
+  $('#event-campaigns-tbody').innerHTML = eventCampaignsCache.length
+    ? eventCampaignsCache
+        .map(
+          (ev) => `<tr>
+            <td>${esc(ev.evid)}</td>
+            <td>${esc(ev.note) || '—'}</td>
+            <td>${fmtNum(ev.quota_used)} / ${ev.quota === null || ev.quota === undefined ? '∞' : fmtNum(ev.quota)}</td>
+            <td>${ev.prevent_duplicate ? 'Yes' : 'No'}</td>
+            <td>${requiredChannelList(ev.required_channels).map((ch) => esc(CHANNEL_META[ch] ? CHANNEL_META[ch].label : ch)).join(', ') || '—'}</td>
+            <td>${fmtTs(ev.updated_at)}</td>
+            <td>
+              <button type="button" class="link-btn event-campaign-edit-btn" data-evid="${esc(ev.evid)}">edit</button>
+              <button type="button" class="link-btn event-participants-btn" data-evid="${esc(ev.evid)}">participants</button>
+              <button type="button" class="link-btn event-campaign-delete-btn" data-evid="${esc(ev.evid)}">delete</button>
+            </td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="7" class="muted">No events yet</td></tr>';
+}
+
+function openEventCampaignModal(ev) {
+  const form = $('#event-campaign-form');
+  form.reset();
+  $('#event-campaign-modal-title').textContent = ev ? `Edit event — ${ev.evid}` : 'Add event';
+  form.dataset.editingEvid = ev ? ev.evid : '';
+  form.elements.evid.value = ev ? ev.evid : '';
+  form.elements.evid.readOnly = !!ev;
+  if (ev) {
+    form.elements.note.value = ev.note || '';
+    form.elements.quota.value = ev.quota === null || ev.quota === undefined ? '' : ev.quota;
+    form.elements.prevent_duplicate.checked = !!ev.prevent_duplicate;
+    const required = requiredChannelList(ev.required_channels);
+    $all('#event-campaign-form input[name="required_channels"]').forEach((cb) => { cb.checked = required.includes(cb.value); });
+  }
+  $('#event-campaign-form-result').textContent = '';
+  $('#event-campaign-modal').hidden = false;
+}
+
+$('#add-event-campaign-btn').addEventListener('click', () => openEventCampaignModal(null));
+$('#event-campaign-modal').addEventListener('click', (e) => { if (e.target === $('#event-campaign-modal')) closeModal($('#event-campaign-modal')); });
+$('#event-campaign-modal-close').addEventListener('click', () => closeModal($('#event-campaign-modal')));
+
+$('#event-campaigns-tbody').addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('.event-campaign-edit-btn');
+  if (editBtn) {
+    const ev = eventCampaignsCache.find((x) => x.evid === editBtn.dataset.evid);
+    if (ev) openEventCampaignModal(ev);
+    return;
+  }
+  const participantsBtn = e.target.closest('.event-participants-btn');
+  if (participantsBtn) {
+    openCampaignParticipantsModal('evid', participantsBtn.dataset.evid);
+    return;
+  }
+  const delBtn = e.target.closest('.event-campaign-delete-btn');
+  if (delBtn) {
+    if (!confirm(`Delete event "${delBtn.dataset.evid}"? Eligibility checks for it will fail until it's added again. Recorded participants are kept.`)) return;
+    const { status, json } = await api(`/event-campaigns/${encodeURIComponent(delBtn.dataset.evid)}`, { method: 'DELETE' });
+    if (status === 200) loadEventCampaigns();
+    else alert(json.message || 'Failed to delete');
+  }
+});
+
+$('#event-campaign-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const editingEvid = form.dataset.editingEvid;
+  const body = {
+    evid: form.evid.value.trim(),
+    note: form.note.value.trim() || null,
+    quota: form.quota.value.trim() === '' ? null : Number(form.quota.value),
+    prevent_duplicate: form.prevent_duplicate.checked,
+    required_channels: $all('#event-campaign-form input[name="required_channels"]:checked').map((cb) => cb.value),
+    dry_run: isDryRun(),
+  };
+  const { status, json } = editingEvid
+    ? await api(`/event-campaigns/${encodeURIComponent(editingEvid)}`, { method: 'PUT', body })
+    : await api('/event-campaigns', { method: 'POST', body });
+  if (status === 200 && !isDryRun()) {
+    closeModal($('#event-campaign-modal'));
+    loadEventCampaigns();
+    return;
+  }
+  resultLine($('#event-campaign-form-result'), status, json);
+});
+
+// Recorded participants for one campaign (kol_campaign_participants) —
+// participantsKey is 'svid' or 'evid', matching the worker's filter param.
+
+let participantsKey = 'svid';
+let participantsId = null;
 let participantsCursor = null;
 
 async function loadCampaignParticipants(reset = true) {
   if (reset) participantsCursor = null;
-  const params = new URLSearchParams({ svid: participantsSvid });
+  const params = new URLSearchParams({ [participantsKey]: participantsId });
   if (participantsCursor) params.set('cursor', participantsCursor);
 
   const { json } = await api(`/campaign-participants?${params.toString()}`);
@@ -1375,9 +1472,10 @@ async function loadCampaignParticipants(reset = true) {
   $('#campaign-participants-load-more').hidden = !participantsCursor;
 }
 
-function openCampaignParticipantsModal(svid) {
-  participantsSvid = svid;
-  $('#campaign-participants-modal-title').textContent = `Participants — ${svid}`;
+function openCampaignParticipantsModal(key, id) {
+  participantsKey = key;
+  participantsId = id;
+  $('#campaign-participants-modal-title').textContent = `Participants — ${key === 'evid' ? 'event ' : ''}${id}`;
   $('#campaign-participants-modal').hidden = false;
   loadCampaignParticipants(true);
 }
@@ -1393,7 +1491,8 @@ $('#campaign-participants-tbody').addEventListener('click', async (e) => {
   const { status, json } = await api(`/campaign-participants/${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' });
   if (status === 200) {
     loadCampaignParticipants(true);
-    loadSurveyCredentials(); // refresh the quota-used column
+    if (participantsKey === 'evid') loadEventCampaigns(); // refresh the quota-used column
+    else loadSurveyCredentials();
   } else {
     alert(json.message || 'Failed to remove');
   }

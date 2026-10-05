@@ -213,6 +213,18 @@
         </thead>
         <tbody id="survey-credentials-tbody"></tbody>
       </table>
+
+      <h3 style="margin-top: 2rem">Event campaigns</h3>
+      <p class="config-hint">One row per event (Event ID). Called as <code>/validate-eligibility</code> / <code>/record-eligibility</code> with <code>evid</code> instead of <code>svid</code> — same quota, duplicate and handle checks, but no SurveyCake form, so no Hash/IV keys. Until an event has a row here it returns EVENT_NOT_AVAILABLE.</p>
+      <div class="panel-toolbar">
+        <button id="add-event-campaign-btn" type="button">+ Add event</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Event ID</th><th>Note</th><th>Quota used</th><th>Prevent duplicate</th><th>Required handles</th><th>Updated At</th><th></th></tr>
+        </thead>
+        <tbody id="event-campaigns-tbody"></tbody>
+      </table>
     </section>
 
     <section id="tab-campaigns" class="tab-panel">
@@ -320,7 +332,32 @@
     </div>
   </div>
 
-  <!-- Recorded participants modal (kol_campaign_participants for one svid) -->
+  <!-- Add/edit event-campaign modal -->
+  <div id="event-campaign-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <button class="modal-close" id="event-campaign-modal-close" aria-label="Close">&times;</button>
+      <h2 id="event-campaign-modal-title">Add event</h2>
+      <form id="event-campaign-form">
+        <dl class="profile-field-list">
+          <dt>Event ID (evid) *</dt><dd><input type="text" name="evid" required placeholder="e.g. TTM26" /></dd>
+          <dt>Note</dt><dd><input type="text" name="note" placeholder="e.g. what this event is" /></dd>
+          <dt>Quota</dt><dd><input type="number" name="quota" min="0" step="1" placeholder="blank = unlimited" /></dd>
+          <dt>Prevent duplicate</dt><dd><label class="filter-option"><input type="checkbox" name="prevent_duplicate" checked /> Reject someone who has already joined this event</label></dd>
+          <dt>Required handles</dt>
+          <dd>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="tiktok" /> TikTok</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="shopee" /> Shopee</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="lazada" /> Lazada</label>
+            <label class="filter-option"><input type="checkbox" name="required_channels" value="affiliate_plus" /> Affiliate+</label>
+          </dd>
+        </dl>
+        <button type="submit">Save</button>
+      </form>
+      <p id="event-campaign-form-result" class="result-msg"></p>
+    </div>
+  </div>
+
+  <!-- Recorded participants modal (kol_campaign_participants for one svid or evid) -->
   <div id="campaign-participants-modal" class="modal-overlay" hidden>
     <div class="modal">
       <button class="modal-close" id="campaign-participants-modal-close" aria-label="Close">&times;</button>

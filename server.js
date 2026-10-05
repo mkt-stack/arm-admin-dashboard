@@ -404,6 +404,36 @@ api.delete('/survey-credentials/:svid', async (req, res) => {
   res.status(status).json(json);
 });
 
+// Event campaigns (kol_event_campaigns) — same Campaign Setup fields, keyed
+// by evid, no hash/IV keys. Participants share /campaign-participants via ?evid=.
+api.get('/event-campaigns', async (req, res) => {
+  const { status, json } = await callWorker('/admin/event-campaigns');
+  res.status(status).json(json);
+});
+
+api.post('/event-campaigns', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker('/admin/event-campaigns', {
+    method: 'POST',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.put('/event-campaigns/:evid', async (req, res) => {
+  const { dry_run, ...fields } = req.body || {};
+  const { status, json } = await callWorker(`/admin/event-campaigns/${encodeURIComponent(req.params.evid)}`, {
+    method: 'PUT',
+    body: { ...fields, admin_id: req.adminUsername, dry_run: dry_run === true },
+  });
+  res.status(status).json(json);
+});
+
+api.delete('/event-campaigns/:evid', async (req, res) => {
+  const { status, json } = await callWorker(`/admin/event-campaigns/${encodeURIComponent(req.params.evid)}`, { method: 'DELETE' });
+  res.status(status).json(json);
+});
+
 api.get('/campaign-participants', async (req, res) => {
   const qs = new URLSearchParams(req.query).toString();
   const { status, json } = await callWorker(`/admin/campaign-participants${qs ? `?${qs}` : ''}`);
