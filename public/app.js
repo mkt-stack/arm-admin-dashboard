@@ -1079,7 +1079,18 @@ $('#add-profile-form').addEventListener('submit', async (e) => {
 async function loadNotifyConfig() {
   const { json } = await api('/settings');
   $('#notify-webhook-url').value = (json.settings && json.settings.notify_webhook_url) || '';
+  for (const box of $('#notify-toggles-form').querySelectorAll('input[type=checkbox]')) {
+    box.checked = !json.settings || json.settings[box.name] !== false;
+  }
 }
+
+$('#notify-toggles-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const settings = {};
+  for (const box of e.target.querySelectorAll('input[type=checkbox]')) settings[box.name] = box.checked;
+  const { status, json } = await api('/settings', { method: 'POST', body: { settings, dry_run: isDryRun() } });
+  resultLine($('#notify-toggles-result'), status, json);
+});
 
 $('#notify-config-form').addEventListener('submit', async (e) => {
   e.preventDefault();

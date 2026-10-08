@@ -256,6 +256,16 @@
       </form>
       <p id="notify-config-result" class="result-msg"></p>
 
+      <h4>Send automatically on</h4>
+      <p class="config-hint">Turning an event off stops the automatic notification for it (sync-task retries included). The manual Notify button on a profile always sends.</p>
+      <form id="notify-toggles-form">
+        <label><input type="checkbox" name="notify_on_create_account" /> New account created (signup form / Add Profile) — full_profile</label><br />
+        <label><input type="checkbox" name="notify_on_add_handle" /> New handle added (add-handle flow / profile Add handle) — handle_only</label><br />
+        <label><input type="checkbox" name="notify_on_reconcile_create" /> Reconcile → Create fresh account — full_profile</label><br />
+        <button type="submit" style="margin-top: 0.5rem">Save toggles</button>
+      </form>
+      <p id="notify-toggles-result" class="result-msg"></p>
+
       <h3 style="margin-top: 2rem">Shopify field mapping</h3>
       <p class="config-hint">Controls which D1 column/handle/static value gets written to which Shopify customer field or metafield on every sync. Add a row here instead of redeploying the worker.</p>
       <table class="data-table mapping-table">
