@@ -196,11 +196,18 @@
 
     <section id="tab-campaign-setup" class="tab-panel">
       <h3>SurveyCake webhook endpoint</h3>
-      <p class="config-hint">Paste this into a form's Webhook/notification setting in SurveyCake when setting it up — SurveyCake calls it directly with each submission's <code>svid</code>/<code>hash</code>, no Make.com/n8n relay needed. Decryption uses whichever credential row below matches that form's Survey ID.</p>
+      <p class="config-hint">Paste this into a form's Webhook/notification setting in SurveyCake when setting it up. It points at the n8n flow, which receives each submission's <code>svid</code>/<code>hash</code>; decryption uses whichever credential row below matches that form's Survey ID. If the flow changes, click Edit to point new forms at the new URL. Forms you've already set up keep their old URL until you update them in SurveyCake.</p>
       <div class="copy-box">
         <code id="surveycake-endpoint-url">—</code>
         <button type="button" id="surveycake-endpoint-copy-btn" class="secondary-btn">Copy</button>
+        <button type="button" id="surveycake-endpoint-edit-btn" class="secondary-btn">Edit</button>
       </div>
+      <form id="surveycake-endpoint-form" class="inline-form" hidden>
+        <input type="url" id="surveycake-endpoint-input" placeholder="https://...  (leave empty to reset to default)" style="min-width: 420px" />
+        <button type="submit">Save</button>
+        <button type="button" id="surveycake-endpoint-cancel-btn" class="secondary-btn">Cancel</button>
+      </form>
+      <p id="surveycake-endpoint-result" class="result-msg"></p>
 
       <h3 style="margin-top: 2rem">Campaigns</h3>
       <p class="config-hint">One row per SurveyCake form (Survey ID). A form only accepts <code>/validate-eligibility</code> checks once it has a row here with its Hash Key + IV Key — until then it returns FORM_NOT_AVAILABLE. Quota counts completions recorded via <code>/record-eligibility</code>, not checks. Edits take effect immediately.</p>

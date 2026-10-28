@@ -52,14 +52,10 @@ async function loadWhoami() {
 // SHOPIFY_STORE_DOMAIN isn't configured server-side), in which case the
 // Profiles-tab Shopify cell just shows the customer id as plain text.
 let shopifyStoreDomain = null;
-let workerBaseUrl = null;
 
 async function loadConfig() {
   const { json } = await api('/config');
   shopifyStoreDomain = json.shopify_store_domain || null;
-  workerBaseUrl = json.worker_base_url || null;
-  const endpointEl = $('#surveycake-endpoint-url');
-  if (endpointEl) endpointEl.textContent = workerBaseUrl ? `${workerBaseUrl}/decrypt-surveycake` : '(worker URL not configured)';
 }
 
 $('#logout-btn').addEventListener('click', async () => {
@@ -1241,6 +1237,38 @@ $('#surveycake-endpoint-copy-btn').addEventListener('click', async () => {
   }
 });
 
+// The link itself is the worker's surveycake_webhook_url setting (defaults to
+// the n8n flow), so a flow change is an Edit here rather than a redeploy.
+async function loadSurveycakeEndpoint() {
+  const { json } = await api('/settings');
+  $('#surveycake-endpoint-url').textContent = (json.settings && json.settings.surveycake_webhook_url) || '(not configured)';
+}
+
+function toggleSurveycakeEndpointForm(show) {
+  $('#surveycake-endpoint-form').hidden = !show;
+  $('#surveycake-endpoint-edit-btn').hidden = show;
+  if (show) {
+    $('#surveycake-endpoint-input').value = $('#surveycake-endpoint-url').textContent;
+    $('#surveycake-endpoint-input').focus();
+  }
+}
+
+$('#surveycake-endpoint-edit-btn').addEventListener('click', () => toggleSurveycakeEndpointForm(true));
+$('#surveycake-endpoint-cancel-btn').addEventListener('click', () => toggleSurveycakeEndpointForm(false));
+
+$('#surveycake-endpoint-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const { status, json } = await api('/settings', {
+    method: 'POST',
+    body: { settings: { surveycake_webhook_url: $('#surveycake-endpoint-input').value.trim() }, dry_run: isDryRun() },
+  });
+  resultLine($('#surveycake-endpoint-result'), status, json);
+  if (status === 200 && !isDryRun()) {
+    toggleSurveycakeEndpointForm(false);
+    loadSurveycakeEndpoint();
+  }
+});
+
 let surveyCredentialsCache = [];
 
 async function loadSurveyCredentials() {
@@ -1274,7 +1302,7 @@ function requiredChannelList(stored) {
 }
 
 async function loadCampaignSetupTab() {
-  await Promise.all([loadSurveyCredentials(), loadEventCampaigns()]);
+  await Promise.all([loadSurveycakeEndpoint(), loadSurveyCredentials(), loadEventCampaigns()]);
 }
 
 function openSurveyCredentialModal(cred) {
