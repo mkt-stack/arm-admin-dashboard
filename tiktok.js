@@ -375,8 +375,8 @@ export function tiktokRouter({ databaseUrl, callWorker, pool }) {
     const arm = await armHandles();
 
     const [product] = await q(`SELECT * FROM tt_products WHERE product_id = $1`, [id]);
-    const skus = await q(`SELECT sku_id, seller_sku, shopify_sku, shopify_variant_id_valid AS shopify_variant_id,
-        CASE WHEN shopify_variant_id_valid IS NOT NULL THEN match_method END AS match_method, sku_status,
+    const skus = await q(`SELECT sku_id, seller_sku, shopify_sku_matched AS shopify_sku, shopify_product_id_valid AS shopify_product_id,
+        shopify_variant_id_valid AS shopify_variant_id, match_method_ours AS match_method, match_products, sku_status,
         coalesce(sale_price, tax_exclusive_price) AS price, inventory_qty
       FROM tt_sku_map WHERE product_id = $1 ORDER BY seller_sku`, [id]);
 

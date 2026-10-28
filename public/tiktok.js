@@ -246,6 +246,13 @@ const PRODUCT_COLS = [
   { label: 'Samples', num: true },
 ];
 
+// shopifyStoreDomain comes from app.js's loadConfig() (SHOPIFY_STORE_DOMAIN = the KOL store).
+function ttShopifyProductLink(productId, label) {
+  return shopifyStoreDomain
+    ? `<a href="https://${esc(shopifyStoreDomain)}/admin/products/${esc(productId)}" target="_blank" rel="noopener">${esc(label)}</a>`
+    : esc(label);
+}
+
 function ttShopifyBadge(r) {
   if (!r.sku_count) return '<span class="tt-tag">not in catalogue</span>';
   const cls = r.skus_matched === r.sku_count ? 'tt-tag-ok' : r.skus_matched ? 'tt-tag-warn' : 'tt-tag-bad';
@@ -352,7 +359,8 @@ async function ttOpenProduct(id) {
   if (status !== 200) { $('#tt-modal-body').innerHTML = `<p class="result-msg err">${esc(json.message)}</p>`; return; }
   const p = json.product;
   $('#tt-modal-title').textContent = p.product_title || `Product ${id}`;
-  $('#tt-modal-sub').textContent += ` · TikTok ${id}${p.shopify_product_id ? ` · Shopify product ${p.shopify_product_id}` : ''} · ${p.skus_matched ?? 0}/${p.sku_count ?? 0} SKUs mapped to Shopify`;
+  $('#tt-modal-sub').innerHTML = `${esc($('#tt-modal-sub').textContent)} · TikTok ${esc(id)}${p.shopify_product_id
+    ? ` · Shopify ${ttShopifyProductLink(p.shopify_product_id, p.shopify_product_title || p.shopify_product_id)}` : ''} · ${p.skus_matched ?? 0}/${p.sku_count ?? 0} SKUs mapped to Shopify`;
 
   $('#tt-modal-body').innerHTML = `
     <div class="chart-card"><h3>Daily revenue &amp; product clicks</h3><div class="chart-wrap"><canvas id="tt-modal-chart"></canvas></div></div>
@@ -380,8 +388,10 @@ async function ttOpenProduct(id) {
     <details class="tt-definitions"><summary>SKUs and Shopify mapping (${json.skus.length})</summary>
     ${ttMiniTable([
       { label: 'Seller SKU', cell: (s) => esc(s.seller_sku) },
-      { label: 'Shopify SKU', cell: (s) => (s.shopify_variant_id ? esc(s.shopify_sku) : '<span class="tt-tag tt-tag-bad">unmatched</span>') },
-      { label: 'Match', cell: (s) => esc(s.match_method || '') },
+      { label: 'Shopify SKU', cell: (s) => (s.shopify_product_id
+        ? ttShopifyProductLink(s.shopify_product_id, s.shopify_sku || `product ${s.shopify_product_id}`)
+        : '<span class="tt-tag tt-tag-bad">unmatched</span>') },
+      { label: 'Match', cell: (s) => `${esc(s.match_method || '')}${s.match_products > 1 ? ` <span class="tt-tag tt-tag-warn" title="This EAN is on ${s.match_products} Shopify products; the active / newest one is used">${s.match_products} products</span>` : ''}` },
       { label: 'Status', cell: (s) => esc(s.sku_status || '') },
       { label: 'Price', num: true, cell: (s) => ttMoney(s.price) },
       { label: 'Stock', num: true, cell: (s) => fmtNum(s.inventory_qty) },
