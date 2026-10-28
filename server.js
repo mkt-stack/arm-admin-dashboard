@@ -24,6 +24,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { buildProfilesWorkbook } from './profiles-export.js';
+import { tiktokRouter } from './tiktok.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +33,9 @@ const {
   SESSION_SECRET,
   ARM_WORKER_BASE_URL,
   ARM_ADMIN_TOKEN,
+  // Optional — Postgres written by arm-tiktok-cron (TikTok tab). Unset just
+  // shows a "not connected" message on that tab.
+  TIKTOK_DATABASE_URL,
   // Optional — not a secret, just the store handle used to build "open in
   // Shopify admin" links on the Profiles tab. Unset just hides that button.
   SHOPIFY_STORE_DOMAIN,
@@ -499,6 +503,10 @@ api.post('/reconcile/apply', async (req, res) => {
   });
   res.status(status).json(json);
 });
+
+// ---------- TikTok tab (read-only, our Postgres copy of IT's TikTok data) ----------
+
+api.use('/tiktok', tiktokRouter({ databaseUrl: TIKTOK_DATABASE_URL, callWorker }));
 
 app.use('/api', api);
 

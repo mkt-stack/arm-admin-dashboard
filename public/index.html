@@ -28,6 +28,7 @@
     <button class="tab-btn" data-tab="reconcile">Reconcile</button>
     <button class="tab-btn" data-tab="campaign-setup">Campaign Setup</button>
     <button class="tab-btn" data-tab="campaigns">Campaign Participants</button>
+    <button class="tab-btn" data-tab="tiktok">TikTok</button>
     <button class="tab-btn" data-tab="config">Config</button>
   </nav>
 
@@ -252,6 +253,73 @@
         <tbody id="campaign-log-tbody"></tbody>
       </table>
       <button id="campaign-log-load-more" hidden>Load more</button>
+    </section>
+
+    <section id="tab-tiktok" class="tab-panel">
+      <div class="panel-toolbar">
+        <div class="tt-view-toggle" role="tablist">
+          <button type="button" class="tt-view-btn active" data-view="creators">Creators</button>
+          <button type="button" class="tt-view-btn" data-view="products">Products</button>
+        </div>
+        <select id="tt-preset" title="Period">
+          <option value="30" selected>Last 30 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="this-month">This month</option>
+          <option value="last-month">Last month</option>
+          <option value="custom">Custom</option>
+        </select>
+        <div class="date-filter">
+          <input type="date" id="tt-from" title="From (Bangkok day)" />
+          <span class="date-filter-sep">–</span>
+          <input type="date" id="tt-to" title="To (Bangkok day)" />
+        </div>
+        <input type="search" id="tt-search" placeholder="Search handle / name / product" />
+        <label class="tt-check" id="tt-arm-only-wrap"><input type="checkbox" id="tt-arm-only" /> ARM members only</label>
+        <button id="tt-apply-btn" type="button">Apply</button>
+        <span class="tt-freshness" id="tt-freshness"></span>
+      </div>
+
+      <p class="result-msg err" id="tt-error" hidden></p>
+
+      <div class="stat-cards tt-stat-cards" id="tt-stat-cards"></div>
+
+      <div class="chart-row">
+        <div class="chart-card">
+          <h3>Affiliate revenue &amp; commission <span class="chart-subtitle">(by order date)</span></h3>
+          <div class="chart-wrap"><canvas id="tt-chart-daily"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Video GMV: GQ vs affiliate <span class="chart-subtitle" id="tt-split-subtitle"></span></h3>
+          <div class="chart-wrap"><canvas id="tt-chart-split"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Monthly trend <span class="chart-subtitle">(revenue &amp; new revenue videos)</span></h3>
+          <div class="chart-wrap"><canvas id="tt-chart-monthly"></canvas></div>
+        </div>
+      </div>
+
+      <h2 class="section-heading" id="tt-table-heading"></h2>
+      <div class="tt-table-wrap">
+        <table class="data-table tt-table">
+          <thead id="tt-thead"></thead>
+          <tbody id="tt-tbody"></tbody>
+        </table>
+      </div>
+      <p class="config-hint" id="tt-table-note"></p>
+
+      <details class="tt-definitions">
+        <summary>How these numbers are counted</summary>
+        <ul>
+          <li>Periods are Bangkok calendar days. &ldquo;vs prev&rdquo; compares with the previous period of the same length.</li>
+          <li><b>Revenue, orders, items, commission, returns</b>: affiliate order lines by order date, excluding cancelled/unpaid. Revenue = unit price &times; quantity. Commission = creator + shop-ads commission (actual once settled, otherwise estimated).</li>
+          <li><b>Views, likes, impressions, clicks, video GMV</b>: TikTok&rsquo;s daily video metrics. CTR = product clicks &divide; product impressions. Conversion = video SKU orders &divide; product clicks.</li>
+          <li><b>New revenue videos</b>: posted in the period and with video GMV &gt; 0 in the period.</li>
+          <li><b>GQ</b> = the shop&rsquo;s own official and marketing accounts; everything else is affiliate.</li>
+          <li><b>ARM match</b>: TikTok handle on the ARM profile (case-insensitive, &ldquo;@&rdquo; and link prefixes ignored).</li>
+          <li>Product-card vs organic split is not available from TikTok. Sample cost &amp; ROI arrive with the Shopify sample data.</li>
+          <li>Data is copied daily from IT&rsquo;s TikTok sync (ready after ~14:00 Bangkok for the previous day).</li>
+        </ul>
+      </details>
     </section>
 
     <section id="tab-config" class="tab-panel">
@@ -512,6 +580,20 @@
     </div>
   </div>
 
+  <!-- TikTok tab: creator / product drill-down -->
+  <div id="tt-modal" class="modal-overlay" hidden>
+    <div class="modal tt-modal">
+      <button class="modal-close" id="tt-modal-close" aria-label="Close">&times;</button>
+      <h2 id="tt-modal-title"></h2>
+      <p class="config-hint" id="tt-modal-sub"></p>
+      <div id="tt-modal-body"></div>
+      <div class="modal-actions">
+        <button id="tt-modal-close-btn" class="secondary-btn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/assets/app.js"></script>
+  <script src="/assets/tiktok.js"></script>
 </body>
 </html>

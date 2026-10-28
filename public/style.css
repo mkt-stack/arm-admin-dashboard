@@ -596,3 +596,45 @@ h3 { font-size: 0.9rem; color: var(--muted); margin: 1.2rem 0 0.4rem; }
   cursor: pointer;
 }
 .reconcile-action-form { margin-top: 1rem; }
+
+/* ---------- TikTok tab ---------- */
+
+.tt-view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.tt-view-btn { background: var(--panel); color: var(--muted); border: none; border-radius: 0; }
+.tt-view-btn.active { background: var(--accent); color: white; }
+.tt-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+.tt-check[hidden] { display: none; }
+.tt-freshness { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+
+.tt-stat-cards { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.tt-stat-cards .stat-value { font-size: 1.5rem; }
+
+.tt-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.tt-table-wrap .data-table { border: none; border-radius: 0; }
+.tt-table th, .tt-table td { white-space: nowrap; }
+.tt-table th.num, .tt-table td.num { text-align: right; }
+.tt-table .tt-sortable { cursor: pointer; user-select: none; }
+.tt-table .tt-sortable:hover { color: var(--text); }
+.tt-table .tt-sorted { color: var(--accent); }
+.tt-product-cell { max-width: 340px; }
+.tt-product-cell a { display: block; overflow: hidden; text-overflow: ellipsis; }
+.tt-sub { font-size: 0.72rem; color: var(--muted); }
+.tt-delta { font-size: 0.72rem; }
+.tt-delta .positive { color: var(--ok); }
+.tt-delta .negative { color: var(--danger); }
+.tt-delta .neutral { color: var(--muted); }
+
+.tt-tag { display: inline-block; margin-left: 0.35rem; padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.68rem; font-weight: 600; background: #eef0f3; color: var(--muted); vertical-align: middle; }
+.tt-tag-arm { background: #dbeafe; color: #1d4ed8; }
+.tt-tag-gq { background: #fee2e2; color: #b91c1c; }
+.tt-tag-ok { background: #dcfce7; color: #15803d; }
+.tt-tag-warn { background: var(--warn); color: #92400e; }
+.tt-tag-bad { background: #fee2e2; color: #b91c1c; }
+
+.tt-definitions { margin-top: 1rem; font-size: 0.82rem; color: var(--muted); }
+.tt-definitions summary { cursor: pointer; font-weight: 600; }
+.tt-definitions ul { margin: 0.5rem 0 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.25rem; }
+
+.tt-modal { max-width: 1100px; }
+.tt-modal h3 { margin: 1.2rem 0 0.5rem; font-size: 0.95rem; }
+.tt-modal .chart-card h3 { margin-top: 0; }
